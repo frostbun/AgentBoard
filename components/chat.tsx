@@ -587,9 +587,11 @@ export function Composer({
         if (!alive || payload.text === null || payload.text === undefined) return;
         const known = typeMirror.last();
         if (payload.text === known) return;
-        const focused = document.activeElement === draftRef.current;
-        const dirty = draftState.current.value !== known && Date.now() - draftState.current.editedAt < 2000;
-        if (focused && dirty) return; // the user is typing here; don't fight them
+        // A long draft scrolls inside the agent's box, so the screen only shows its tail:
+        // an extraction contained in what we already know is that window, not an edit.
+        if (known && known.includes(payload.text)) return;
+        // Anything the user typed here but we have not mirrored yet outranks the terminal.
+        if (draftState.current.value !== known) return;
         typeMirror.adopt(payload.text);
         setDraft(payload.text);
       } catch {

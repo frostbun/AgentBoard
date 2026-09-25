@@ -88,7 +88,11 @@ Everything else herdr exposes (`layout.*`, `tab.*`, `worktree.*`, `notification.
   (`lib/herdr/input-line.ts`, covered by `bun run check`) and adopts it when herdr owns the typing. While the
   composer has unsent local edits it never fights you, and it pauses entirely when a question dialog owns input.
   A newline you type is sent as the agent's own newline chord (`shift+enter`) rather than Enter, so a multiline
-  draft does not submit itself; shells get the raw newline.
+  draft does not submit itself; shells get the raw newline. A draft you have typed here is never overwritten by
+  the terminal: while the board holds unsent text, and whenever the terminal only shows the tail of a scrolled
+  box, the polled text is ignored.
+- **Long transcripts do not re-render for nothing.** A poll whose payload says nothing new keeps the previous
+  parsed object, so React bails out; an idle agent's chat view produces zero DOM mutations between changes.
 - **The fleet has no session filter.** Every session is always listed; a chat link carries `?session=` and shows a
   read-only chip, and the spawn form has its own page-local session picker. There is no bottom navigation — the
   per-workspace `+` is the way to start an agent, and every page has a back link.

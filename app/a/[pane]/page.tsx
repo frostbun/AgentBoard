@@ -32,6 +32,7 @@ export default function ChatPage() {
   const pane: BoardPane | undefined = state?.panes.find((candidate) => candidate.pane_id === paneId);
 
   const [session, setSession] = useState<ChatSession | null>(null);
+  const sessionSignature = useRef("");
   const [view, setView] = useState<"chat" | "terminal">("chat");
   const [paneText, setPaneText] = useState<string>("");
   const [controls, setControls] = useState(false);
@@ -52,7 +53,23 @@ export default function ChatPage() {
       const payload = (await response.json()) as ChatSession & { session?: string };
       // The server resolves panes across sessions; follow its answer so later calls are right.
       if (payload.session && payload.session !== pageSession) setPageSession(payload.session);
-      setSession(payload);
+
+      // Re-rendering a long transcript on every poll is what makes scrolling stutter, so a
+      // payload that says nothing new keeps the previous object (and React's memoisation).
+      const last = payload.messages[payload.messages.length - 1];
+      const signature = [
+        payload.messages.length,
+        last?.id ?? "",
+        last?.blocks.reduce((total, block) => total + ("text" in block ? block.text.length : 0), 0) ?? 0,
+        payload.pending ? "pending" : "-",
+        payload.usage?.context_tokens ?? "",
+        payload.error ?? "",
+        payload.awaitingFirstMessage ? "awaiting" : "-",
+      ].join(":");
+      if (signature !== sessionSignature.current) {
+        sessionSignature.current = signature;
+        setSession(payload);
+      }
       setError(null);
     } catch (err) {
       setError((err as Error).message);
