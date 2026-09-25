@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink-950: #08090b;
+  --color-ink-900: #0e1013;
+  --color-ink-850: #14171b;
+  --color-ink-800: #1a1e23;
+  --color-ink-700: #24292f;
+  --color-ink-600: #333a42;
+  --color-ink-400: #7d8794;
+  --color-ink-200: #c3cad3;
+  --color-accent: #5b8cff;
+  --color-working: #5b8cff;
+  --color-blocked: #ff6b5b;
+  --color-done: #3ddc97;
+  --color-idle: #7d8794;
+}
+
+:root {
+  color-scheme: dark;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-ink-950);
+  color: var(--color-ink-200);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+textarea,
+input,
+select,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+textarea,
+input,
+select {
+  font-size: 16px; /* stops iOS zoom-on-focus */
+}
+
+@layer utilities {
+  .pad-top {
+    padding-top: max(0.75rem, var(--safe-top));
+  }
+  .pad-bottom {
+    padding-bottom: max(0.5rem, var(--safe-bottom));
+  }
+  .card {
+    background: var(--color-ink-900);
+    border: 1px solid var(--color-ink-800);
+    border-radius: 0.9rem;
+  }
+  .scroll-y {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Hidden until the container is scrolled: see ScrollHider. */
+    scrollbar-width: none;
+  }
+  .scroll-y::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+  .scroll-y[data-scrolling="true"] {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-ink-600) transparent;
+  }
+  .scroll-y[data-scrolling="true"]::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scroll-y[data-scrolling="true"]::-webkit-scrollbar-thumb {
+    background: var(--color-ink-600);
+    border-radius: 9999px;
+  }
+  .scroll-y[data-scrolling="true"]::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .tap {
+    min-height: 2.75rem; /* 44px target */
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.prose-chat {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.prose-chat code {
+  background: var(--color-ink-800);
+  border-radius: 0.25rem;
+  padding: 0.05rem 0.25rem;
+  font-size: 0.85em;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3 {
+  font-weight: 600;
+  color: #fff;
+  margin: 0.6em 0 0.2em;
+}
+.prose-chat ul,
+.prose-chat ol {
+  margin: 0.3em 0 0.3em 1.1em;
+  list-style: revert;
+}
+.prose-chat a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+.prose-chat pre {
+  background: var(--color-ink-950);
+  border: 1px solid var(--color-ink-800);
+  border-radius: 0.5rem;
+  padding: 0.6rem;
+  overflow-x: auto;
+  font-size: 0.8rem;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+.spinner-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}

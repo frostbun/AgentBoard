@@ -1,0 +1,46 @@
+# Run the board in a container against herdr on the host.
+#
+#   AGENTBOARD_TOKEN=$(openssl rand -hex 16) docker compose up --build
+#
+# Then open http://<host>:4317/?token=$AGENTBOARD_TOKEN
+#
+# What is mounted:
+#   ~/.config/herdr        herdr's sockets (the board talks to a running server over one)
+#   ~/.omp/agent/sessions  omp transcripts
+#   ~/.claude/projects     Claude Code transcripts
+#   ~/.local/share/opencode  opencode's sqlite database
+#   ~/.cache/opencode      models.dev registry, for context-window limits
+#
+# What does NOT work in the container: creating a *new* herdr session, because that spawns
+# `herdr --session NAME server`, and herdr runs on the host. Everything else — monitoring,
+# spawning agents, prompting, worktrees — goes through herdr over the socket.
+services:
+  agentboard:
+    build: .
+    image: agentboard:latest
+    ports:
+      - "4317:4317"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "4317"
+      # Required: the board drives real terminals.
+      AGENTBOARD_TOKEN: ${AGENTBOARD_TOKEN:?set AGENTBOARD_TOKEN, e.g. docker compose up with AGENTBOARD_TOKEN=$(openssl rand -hex 16)}
+      # Agents run on the host, so a PATH check inside the container is meaningless.
+      AGENTBOARD_AGENT_CHECK: "off"
+      # Pick a session explicitly, or let discovery find the newest live socket.
+      HERDR_SESSION: ${HERDR_SESSION:-}
+      # herdr reports paths from the host; they are rewritten under the mounted home.
+      AGENTBOARD_HOST_HOME: ${HOME}
+      # Docker (rootful/Desktop) maps uid 1000 straight through. Podman rootless needs
+      # `userns_mode: keep-id` as well, or the 0600 herdr socket is unreadable.
+      HOME: /home/node
+    volumes:
+      - ${HOME}/.config/herdr:/home/node/.config/herdr
+      - ${HOME}/.omp/agent/sessions:/home/node/.omp/agent/sessions
+      - ${HOME}/.claude/projects:/home/node/.claude/projects
+      - ${HOME}/.local/share/opencode:/home/node/.local/share/opencode
+      - ${HOME}/.cache/opencode:/home/node/.cache/opencode:ro
+    # The herdr socket is owned by the host uid; match it if you are not uid 1000.
+    user: "${AGENTBOARD_UID:-1000}:${AGENTBOARD_GID:-1000}"
+    # userns_mode: keep-id   # podman rootless: uncomment so the socket is readable
+    restart: unless-stopped

@@ -1,0 +1,26 @@
+{
+  "name": "agentboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p ${PORT:-4317} -H ${HOST:-0.0.0.0}",
+    "build": "next build",
+    "start": "next start -p ${PORT:-4317} -H ${HOST:-0.0.0.0}",
+    "typecheck": "tsc --noEmit",
+    "check": "bun scripts/check-input-line.ts"
+  },
+  "dependencies": {
+    "next": "^16.3.6",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^24.9.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3"
+  }
+}

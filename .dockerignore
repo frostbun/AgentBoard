@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.docs
+docs
+*.md
+!README.md
+scripts
+.env
+.env.local
+.agentboard-token
