@@ -153,6 +153,10 @@ The bar under an agent's header is computed from the session file itself — no 
 
 `bun scripts/check-usage.ts <claude.jsonl> <omp.jsonl> <opencode-session-id>` prints each reader's aggregation for a real file.
 
+Scrollbars are hidden by **colour**, never by width: toggling `scrollbar-width` changes the content width,
+which re-wraps long paragraphs and makes blocks jump around while scrolling. The gutter is reserved
+(`scrollbar-gutter: stable`) and only the thumb's colour changes.
+
 ## Notifications
 
 The board fires one browser notification (plus a two-tone chime) per pane that enters `blocked` or `done`, and

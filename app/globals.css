@@ -60,32 +60,32 @@ select {
     border: 1px solid var(--color-ink-800);
     border-radius: 0.9rem;
   }
+  /* The scrollbar keeps its width at all times and is hidden by colour instead: changing
+     scrollbar-width changes the content width, which re-wraps long text and makes whole
+     blocks jump around while scrolling. */
   .scroll-y {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    /* Hidden until the container is scrolled: see ScrollHider. */
-    scrollbar-width: none;
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    scrollbar-gutter: stable;
   }
   .scroll-y::-webkit-scrollbar {
-    width: 0;
-    height: 0;
+    width: 6px;
+    height: 6px;
+  }
+  .scroll-y::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 9999px;
+  }
+  .scroll-y::-webkit-scrollbar-track {
+    background: transparent;
   }
   .scroll-y[data-scrolling="true"] {
-    scrollbar-width: thin;
     scrollbar-color: var(--color-ink-600) transparent;
-  }
-  .scroll-y[data-scrolling="true"]::-webkit-scrollbar {
-    width: 6px;
   }
   .scroll-y[data-scrolling="true"]::-webkit-scrollbar-thumb {
     background: var(--color-ink-600);
-    border-radius: 9999px;
-  }
-  .scroll-y[data-scrolling="true"]::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .tap {
-    min-height: 2.75rem; /* 44px target */
   }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
