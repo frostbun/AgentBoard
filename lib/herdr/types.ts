@@ -102,6 +102,8 @@ export type AttentionItem = {
 export type BoardPane = PaneInfo & {
   workspace_label: string;
   tab_label: string;
+  /** Epoch ms of the last status or title change, tracked by the board (survives reloads). */
+  last_change_at?: number;
 };
 
 export type LinkStatus = {

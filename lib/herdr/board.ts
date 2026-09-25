@@ -73,7 +73,7 @@ const MIN_REFRESH_GAP_MS = 1000;
  * route, so class identity differs per bundle and must not be used to detect a
  * stale cached instance.
  */
-const BOARD_BUILD = "8";
+const BOARD_BUILD = "9";
 
 /**
  * Live mirror of the herdr session. Snapshot polling keeps state authoritative;
@@ -112,6 +112,8 @@ export class Board {
   }
   private subscribers = new Set<(state: BoardState) => void>();
   private attention = new Map<string, AttentionItem>();
+  /** pane_id → signature of the last observed status/title, with when it changed. */
+  private activity = new Map<string, { signature: string; at: number }>();
   private refreshTimer: NodeJS.Timeout | number | null = null;
   private pollTimer: NodeJS.Timeout | number | null = null;
   private refreshing = false;
@@ -195,6 +197,19 @@ export class Board {
     }));
     const agents: AgentInfo[] = snap.agents ?? [];
 
+    const now = Date.now();
+    const liveKeys = new Set(panes.map((pane) => pane.pane_id));
+    for (const paneId of [...this.activity.keys()]) {
+      if (!liveKeys.has(paneId)) this.activity.delete(paneId);
+    }
+    const withActivity: BoardPane[] = panes.map((pane) => {
+      const signature = `${pane.agent_status}|${paneTitle(pane) ?? ""}`;
+      const previous = this.activity.get(pane.pane_id);
+      const at = previous && previous.signature === signature ? previous.at : now;
+      this.activity.set(pane.pane_id, { signature, at });
+      return { ...pane, last_change_at: at };
+    });
+
     const live = new Set(panes.map((pane) => pane.pane_id));
     for (const [paneId, item] of this.attention) {
       const pane = panes.find((candidate) => candidate.pane_id === paneId);
@@ -233,7 +248,7 @@ export class Board {
       },
       workspaces,
       tabs,
-      panes,
+      panes: withActivity,
       agents,
       attention: [...this.attention.values()].sort((a, b) => b.first_seen - a.first_seen),
       updated_at: Date.now(),

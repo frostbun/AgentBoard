@@ -269,6 +269,8 @@ export function useAutoGrow(value: string, maxPx: number): RefObject<HTMLTextAre
 export function useTypeMirror(
   paneId: string,
   session?: string,
+  /** Agent panes submit on Enter, so a newline has to be a chord; shells take the raw byte. */
+  agentPane = true,
 ): {
   mirror: (text: string) => void;
   forget: () => void;
@@ -293,12 +295,20 @@ export function useTypeMirror(
       if (removals > 0) {
         await callAction("pane.send_keys", { pane_id: paneId, keys: Array.from({ length: removals }, () => "backspace") }, 30_000, session);
       }
-      if (appended) await callAction("pane.send_text", { pane_id: paneId, text: appended }, 30_000, session);
+      if (appended) {
+        // A literal newline would submit the prompt, so agents that treat Enter as "send"
+        // get their own newline chord (shift+enter) instead. Shells take the raw newline.
+        const segments = appended.split("\n");
+        for (const [index, segment] of segments.entries()) {
+          if (index > 0 && agentPane) await callAction("pane.send_keys", { pane_id: paneId, keys: ["shift+enter"] }, 30_000, session);
+          if (segment) await callAction("pane.send_text", { pane_id: paneId, text: segment }, 30_000, session);
+        }
+      }
       sent.current = next;
     } catch {
       /* best effort: the submit path still reports real failures */
     }
-  }, [paneId, session]);
+  }, [paneId, session, agentPane]);
 
   const mirror = useCallback(
     (text: string) => {

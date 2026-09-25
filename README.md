@@ -50,7 +50,7 @@ pause while the tab is hidden.
 
 | Area | herdr API used |
 | --- | --- |
-| Live fleet: **session → workspace → agents**, every herdr session at once, with status, title, cwd, last change | `session.snapshot` + `events.subscribe` per session |
+| Live fleet: **session → workspace → agents**, every herdr session at once, with status, title, cwd, and time since the last real change (tracked server-side, so reloads do not reset it) | `session.snapshot` + `events.subscribe` per session |
 | Search box: filters agents by name, title, cwd, pane id, workspace, or session; non-matching workspaces collapse | client-side over the federated stream |
 | `+` on every workspace **and on every session header** (a fresh session has no workspace to hang one on): opens the spawn form with that session — and workspace, when there is one — preselected | `/new?session=…[&workspace=…]` |
 | `+ New session` at the bottom of the fleet: starts `herdr --session NAME server` (creates it if new), lists sessions that exist but are not running so they can be started again | `POST /api/sessions` |
@@ -80,12 +80,15 @@ Everything else herdr exposes (`layout.*`, `tab.*`, `worktree.*`, `notification.
 - **Transcripts are read, not re-implemented.** Each agent's own session file/database is parsed into one
   normalized shape (`lib/chat/*`), including pending `ask`/`AskUserQuestion` tool calls, which become answerable
   cards. Agents without a reader fall back to the Terminal tab (`pane.read`).
+- **Markdown in transcripts is rendered**, including GFM tables, fenced code, headings, lists, inline code, bold, and links.
 - **Terminal answers are keystrokes.** Option *n* is `down`×n + `enter`; multi-select toggles with `space` and
   submits with `enter`. The button labels show exactly what gets sent.
 - **Input sync is bidirectional and always on.** The board diffs what you type and sends only the delta
   (backspaces for deletions); a 1.3 s poll parses the agent's input line out of the rendered screen
   (`lib/herdr/input-line.ts`, covered by `bun run check`) and adopts it when herdr owns the typing. While the
-  composer has unsent local edits it never fights you, and it pauses entirely while a question dialog owns input.
+  composer has unsent local edits it never fights you, and it pauses entirely when a question dialog owns input.
+  A newline you type is sent as the agent's own newline chord (`shift+enter`) rather than Enter, so a multiline
+  draft does not submit itself; shells get the raw newline.
 - **The fleet has no session filter.** Every session is always listed; a chat link carries `?session=` and shows a
   read-only chip, and the spawn form has its own page-local session picker. There is no bottom navigation — the
   per-workspace `+` is the way to start an agent, and every page has a back link.

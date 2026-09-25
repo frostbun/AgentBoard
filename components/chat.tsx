@@ -36,6 +36,47 @@ function inlineNodes(text: string, key: string): ReactNode[] {
   return nodes;
 }
 
+const TABLE_SEPARATOR = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+
+/** Splits a table row into cells, ignoring the outer pipes. */
+function cellsOf(row: string): string[] {
+  return row
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function Table({ rows, header, tableKey }: { rows: string[][]; header: string[]; tableKey: string }) {
+  return (
+    <div className="scroll-y my-2 max-w-full overflow-x-auto rounded-lg border border-ink-800">
+      <table className="w-full border-collapse text-[0.78rem]">
+        <thead>
+          <tr className="bg-ink-900">
+            {header.map((cell, index) => (
+              <th key={`${tableKey}-h${index}`} className="whitespace-nowrap border-b border-ink-800 px-2 py-1 text-left font-semibold text-white">
+                {inlineNodes(cell, `${tableKey}-h${index}`)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={`${tableKey}-r${rowIndex}`} className="odd:bg-ink-900/40">
+              {row.map((cell, cellIndex) => (
+                <td key={`${tableKey}-r${rowIndex}c${cellIndex}`} className="border-b border-ink-850 px-2 py-1 align-top">
+                  {inlineNodes(cell, `${tableKey}-r${rowIndex}c${cellIndex}`)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function proseNodes(text: string, key: string): ReactNode[] {
   const blocks: ReactNode[] = [];
   const lines = text.split("\n");
@@ -47,7 +88,22 @@ function proseNodes(text: string, key: string): ReactNode[] {
     list = null;
   };
 
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    // A table is a pipe row followed by a separator row.
+    if (line.trim().startsWith("|") && TABLE_SEPARATOR.test(lines[index + 1] ?? "")) {
+      flush();
+      const header = cellsOf(line);
+      const rows: string[][] = [];
+      let cursor = index + 2;
+      while (cursor < lines.length && lines[cursor].trim().startsWith("|")) {
+        rows.push(cellsOf(lines[cursor]));
+        cursor += 1;
+      }
+      blocks.push(<Table key={`${key}-t${blocks.length}`} header={header} rows={rows} tableKey={`${key}-t${blocks.length}`} />);
+      index = cursor - 1;
+      continue;
+    }
     const heading = /^(#{1,4})\s+(.*)$/.exec(line);
     const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
     const numbered = /^\s*\d+[.)]\s+(.*)$/.exec(line);
@@ -514,7 +570,7 @@ export function Composer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
-  const typeMirror = useTypeMirror(paneId, session);
+  const typeMirror = useTypeMirror(paneId, session, hasAgent);
   const draftRef = useAutoGrow(draft, 160);
   const draftState = useRef({ value: draft, editedAt: 0 });
   draftState.current.value = draft;

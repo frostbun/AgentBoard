@@ -24,41 +24,6 @@ import { closeWarning, paneTitle, type AttentionItem, type BoardPane, type Works
 
 type SessionAttention = AttentionItem & { session: string };
 
-/** Last status/title change per pane, namespaced by session (pane ids repeat across sessions). */
-function useActivityClock(sessions: SessionSnapshot[]): Record<string, number> {
-  const signatures = useRef(new Map<string, string>());
-  const stamps = useRef(new Map<string, number>());
-  const [, bump] = useState(0);
-
-  useEffect(() => {
-    const live = new Set<string>();
-    for (const session of sessions) {
-      for (const pane of session.state.panes) live.add(`${session.id}:${pane.pane_id}`);
-    }
-    for (const key of [...signatures.current.keys()]) {
-      if (!live.has(key)) {
-        signatures.current.delete(key);
-        stamps.current.delete(key);
-      }
-    }
-    const now = Date.now();
-    let changed = false;
-    for (const session of sessions) {
-      for (const pane of session.state.panes) {
-        const key = `${session.id}:${pane.pane_id}`;
-        const signature = `${pane.agent_status}|${paneTitle(pane) ?? ""}`;
-        if (signatures.current.get(key) === signature) continue;
-        signatures.current.set(key, signature);
-        stamps.current.set(key, now);
-        changed = true;
-      }
-    }
-    if (changed) bump((value) => value + 1);
-  }, [sessions]);
-
-  return Object.fromEntries(stamps.current);
-}
-
 /** Free-text match over everything a row shows, so one box searches agents and places. */
 function matches(pane: BoardPane, session: SessionSnapshot, workspace: WorkspaceInfo, needle: string): boolean {
   if (!needle) return true;
@@ -174,7 +139,6 @@ function AgentRow({
 function WorkspaceCard({
   workspace,
   session,
-  clock,
   needle,
   onRename,
   onClose,
@@ -183,7 +147,6 @@ function WorkspaceCard({
 }: {
   workspace: WorkspaceInfo;
   session: SessionSnapshot;
-  clock: Record<string, number>;
   needle: string;
   onRename: (pane: BoardPane, session: string) => void;
   onClose: (pane: BoardPane, session: string) => void;
@@ -249,7 +212,7 @@ function WorkspaceCard({
               pane={pane}
               session={session}
               agentName={session.state.agents.find((agent) => agent.pane_id === pane.pane_id)?.name ?? null}
-              activity={clock[`${session.id}:${pane.pane_id}`]}
+              activity={pane.last_change_at}
               onRename={onRename}
               onClose={onClose}
             />
@@ -284,7 +247,6 @@ export default function FleetPage() {
   const [permission, setPermission] = useState<NotificationState>("default");
   const [testSent, setTestSent] = useState<string | null>(null);
 
-  const clock = useActivityClock(sessions);
 
   const attention: SessionAttention[] = useMemo(
     () => sessions.flatMap((entry) => entry.state.attention.map((item) => ({ ...item, session: entry.id }))),
@@ -634,7 +596,6 @@ export default function FleetPage() {
                       key={`${session.id}:${workspace.workspace_id}`}
                       workspace={workspace}
                       session={session}
-                      clock={clock}
                       needle={needle}
                       onRename={renameAgent}
                       onClose={closeAgent}
