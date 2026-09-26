@@ -125,7 +125,7 @@ Everything else herdr exposes (`layout.*`, `tab.*`, `worktree.*`, `notification.
 - **The fleet has no session filter.** Every session is always listed; a chat link carries `?session=` (named in
   the chat's pane-controls sheet), and the spawn form has its own page-local session picker. There is no bottom
   navigation — the per-workspace `+` is the way to start an agent, and every page has a back link.
-- **Panes resolve across sessions.** Read routes (`transcript`, `pane-text`, `input-line`) look the pane up in the
+- **Panes resolve across sessions.** Read routes (`transcript`, `pane-text`) look the pane up in the
   requested session first and then in every other live session, returning the session that actually owns it — a
   link with a missing or stale `?session=` self-heals instead of 404ing, and the page adopts the answer.
 
