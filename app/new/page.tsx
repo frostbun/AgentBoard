@@ -23,6 +23,12 @@ function pickPaneId(result: unknown): string | null {
   return asString(record.pane_id);
 }
 
+/** herdr reports the created tab as `tab.tab_id`; the pane inside it comes from `root_pane`. */
+function pickTabId(result: unknown): string | null {
+  const nested = asRecord(asRecord(result)?.tab);
+  return nested ? asString(nested.tab_id) : null;
+}
+
 /** herdr reports `launch_pending` for a while; typing into a pane before its agent owns
  *  the terminal lands in the shell instead. */
 async function waitForAgent(paneId: string, session: string, timeoutMs: number): Promise<void> {
@@ -45,27 +51,10 @@ async function waitForAgent(paneId: string, session: string, timeoutMs: number):
   if (!present) throw new Error(`agent did not appear in ${paneId} within ${Math.round(timeoutMs / 1000)}s`);
 }
 
-/** Split wide panes to the right and tall ones down, keeping both halves usable. */
-async function chooseSplitDirection(anchorPaneId: string | null): Promise<"right" | "down"> {
-  if (!anchorPaneId) return "right";
-  try {
-    const layout = await callAction<{ layout?: { area?: { width?: number; height?: number } } }>("pane.layout", {
-      pane_id: anchorPaneId,
-    });
-    const area = layout.layout?.area;
-    const width = area?.width ?? 0;
-    const height = area?.height ?? 0;
-    if (width >= 120) return "right";
-    if (height >= 30) return "down";
-    return width >= height ? "right" : "down";
-  } catch {
-    return "right";
-  }
-}
-
 /**
- * Starts one agent in one workspace. Which session and workspace is decided by the caller —
- * the fleet's workspace `+` link — so there is no "where" chooser here.
+ * Starts one agent in one workspace, in a tab of its own: a split would squeeze the agent the
+ * user is already working in, and every agent here is a place you come back to. Which session
+ * and workspace is decided by the caller — the fleet's workspace `+` link.
  */
 export default function NewAgentPage() {
   const router = useRouter();
@@ -153,11 +142,6 @@ export default function NewAgentPage() {
     if (first) setCwd(first);
   }, [cwd, workspaceId, knownCwds]);
 
-  const anchorPaneId = () => {
-    const panes = (state?.panes ?? []).filter((pane) => pane.workspace_id === workspaceId);
-    return (panes.find((pane) => pane.focused) ?? panes[0])?.pane_id ?? null;
-  };
-
   /** Model flag first, then whatever else was typed. */
   const agentArgs = (): string[] => [
     ...modelArgs(kind, model),
@@ -173,39 +157,48 @@ export default function NewAgentPage() {
 
   const create = async () => {
     setError(null);
+    // The tab this spawn opened, until an agent owns it. herdr only refuses a taken name inside
+    // agent.start, so without this the failed spawn would leave an empty tab in the workspace.
+    let orphanTab: string | null = null;
     try {
       if (!workspace) throw new Error("pick a workspace first — the fleet's workspace + button links here");
-      const anchor = anchorPaneId();
 
-      setBusy("splitting pane…");
-      const paneId = pickPaneId(
-        await callAction(
-          "pane.split",
-          {
-            ...(anchor ? { target_pane_id: anchor } : { workspace_id: workspace.workspace_id }),
-            direction: await chooseSplitDirection(anchor),
-            ...(absoluteCwd() ? { cwd: absoluteCwd() } : {}),
-            focus: false,
-          },
-          60_000,
-          spawnSession || undefined,
-        ),
+      setBusy("opening a tab…");
+      const created = await callAction(
+        "tab.create",
+        {
+          workspace_id: workspace.workspace_id,
+          ...(absoluteCwd() ? { cwd: absoluteCwd() } : {}),
+          focus: false,
+        },
+        60_000,
+        spawnSession || undefined,
       );
+      orphanTab = pickTabId(created);
+      const paneId = pickPaneId(created);
       if (!paneId) throw new Error("herdr did not return a pane id");
 
       setBusy(`starting ${kind}…`);
-      await callAction(
-        "agent.start",
-        {
-          name: agentName(name.trim(), kind),
-          kind,
-          pane_id: paneId,
-          ...(agentArgs().length ? { args: agentArgs() } : {}),
-          timeout_ms: 120_000,
-        },
-        180_000,
-        spawnSession || undefined,
-      );
+      try {
+        await callAction(
+          "agent.start",
+          {
+            name: agentName(name.trim(), kind),
+            kind,
+            pane_id: paneId,
+            ...(agentArgs().length ? { args: agentArgs() } : {}),
+            timeout_ms: 120_000,
+          },
+          180_000,
+          spawnSession || undefined,
+        );
+        orphanTab = null;
+      } catch (err) {
+        if (orphanTab) {
+          await callAction("tab.close", { tab_id: orphanTab }, 20_000, spawnSession || undefined).catch(() => undefined);
+        }
+        throw err;
+      }
 
       if (prompt.trim()) {
         setBusy(`waiting for ${kind} to boot…`);

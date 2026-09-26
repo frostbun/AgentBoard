@@ -59,7 +59,7 @@ pause while the tab is hidden.
 | Turn times in the chat: how long each turn took, and a live counter while the agent is still on one | the transcript's own message timestamps |
 | Transcripts come from herdr's own `agent_session` reference and nothing else: a pane without one reports the session missing (the Terminal tab still works), never a guess from the pane's directory | `session.snapshot` → `agent_session` → that agent's own session file/db |
 | Pending-question cards with option buttons; answers sent as keystrokes | transcript tool calls + `pane.send_keys` / `pane.send_text` |
-| Spawn: existing workspace, new workspace, or isolated git worktree; optional first prompt | `pane.split`, `workspace.create`, `worktree.create`, `agent.start` |
+| Spawn: existing workspace, new workspace, or isolated git worktree; the agent gets a tab of its own; optional first prompt | `tab.create`, `workspace.create`, `worktree.create`, `agent.start` |
 | Prompt & steer: composer, Esc/Ctrl-C/arrows, interrupt, rename, zoom, focus, close pane | `agent.prompt`, `agent.send_keys`, `pane.*` |
 | Two-way input sync: typing here writes to the agent's prompt as you type, and typing in herdr first appears here (the terminal is the source of truth) | `pane.send_text`/`send_keys`, `pane.read` + input-line parser |
 | Attention inbox: blocked/done agents, browser notification + sound, muted toggle. Review focuses the pane on the way into the chat, so herdr's "finished, unseen" state clears | `agent_status` rollups, `pane.focus` |
