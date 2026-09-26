@@ -5,8 +5,15 @@
  * as a bare prompt line (claude: `❯ text`). The box is walked from its bottom border upward so a
  * multi-line draft comes back whole, with the bottom border's inline text as the final line.
  * Returning null is a valid answer: the caller keeps whatever it already had.
+ *
+ * The prompt is docked at the bottom of the pane, so the bottom-most box wins and the search
+ * never continues past it. Everything above is transcript, and omp's welcome panel is shaped
+ * exactly like a prompt box — walking up from an empty prompt used to serve its tips as a draft
+ * (and mirroring that draft typed them into the agent).
  */
 const BOTTOM_BORDER = /^\s*[╰└]\s*[─-]/;
+/** A junction in the border means a multi-column panel (omp's welcome box), never the prompt. */
+const PANEL_BORDER = /[┬┴├┤┼]/;
 const TOP_BORDER = /^\s*[╭┌]/;
 const SIDE_ROW = /^\s*[│┃]/;
 const HINT = /\b(esc|enter|tab|shift|ctrl|↑|↓|←|→)\b.*·|·\s*(esc|enter|tab|shift|ctrl)/i;
@@ -56,21 +63,22 @@ export function extractInputLine(screen: string): string | null {
     };
 
     if (BOTTOM_BORDER.test(row)) {
+      // A panel border, or a box whose top never appears (the draft scrolled out of the read):
+      // the prompt is not parseable here, and nothing higher up is the prompt either.
+      if (PANEL_BORDER.test(row)) return null;
       const box = readBox(lines, index);
-      if (box) {
-        const text = box.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd();
-        if (!text.trim()) continue;
-        if (isPlaceholder(text)) continue;
-        return text;
-      }
-      continue;
+      if (!box) return null;
+      const text = box.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd();
+      if (!text.trim()) return null;
+      if (isPlaceholder(text)) return null;
+      return text;
     }
 
     const bare = BARE_PROMPT.exec(row);
     if (bare) {
       const text = row.slice(bare[0].length).trimEnd();
-      if (!text) continue;
-      if (PLACEHOLDER.test(text)) continue;
+      if (!text) return null;
+      if (PLACEHOLDER.test(text)) return null;
       return text;
     }
   }
