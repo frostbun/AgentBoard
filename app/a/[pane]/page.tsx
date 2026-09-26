@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, IconButton, iconClass, Row, Screen, Sheet, StatusPill } from "@/components/bits";
+import { Button, ConfirmSheet, IconButton, iconClass, PromptSheet, Row, Screen, Sheet, StatusPill } from "@/components/bits";
 import { Composer, MessageList, ModelChip, QuestionCard } from "@/components/chat";
 import { UsageBar } from "@/components/usage";
 import { activeSession, callAction, shortCwd, useBoard, withSession } from "@/components/use-board";
@@ -35,6 +35,9 @@ export default function ChatPage() {
   const [view, setView] = useState<"chat" | "terminal">("chat");
   const [paneText, setPaneText] = useState<string>("");
   const [controls, setControls] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  /** null closed, otherwise the draft pane title. */
+  const [renameTitle, setRenameTitle] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
@@ -167,6 +170,26 @@ export default function ChatPage() {
       await navigator.clipboard.writeText(value);
     });
 
+  /** Closes on herdr's answer alone: the notice must never claim a pane that is still there. */
+  const closePane = () =>
+    run("pane closed", async () => {
+      await callAction("pane.close", { pane_id: paneId }, 20_000, pageSession ?? undefined);
+      setControls(false);
+    });
+
+  /** The ask is our sheet, not `window.prompt`: an installed iOS web app answers that with null. */
+  const submitRename = async () => {
+    const title = renameTitle?.trim();
+    if (!title) {
+      setRenameTitle(null);
+      return;
+    }
+    await run("renamed", () => callAction("pane.rename", { pane_id: paneId, label: title }, 20_000, pageSession ?? undefined));
+    // The notice and the error banner both sit under these sheets, so get out of their way.
+    setRenameTitle(null);
+    setControls(false);
+  };
+
   return (
     <Screen>
       <header className="pad-top sticky top-0 z-20 border-b border-ink-850 bg-ink-950/90 px-3 pb-2 backdrop-blur">
@@ -234,7 +257,7 @@ export default function ChatPage() {
         showKeys={view === "terminal"}
       />
 
-      <Sheet open={controls} onClose={() => setControls(false)} title={agentLabel}>
+      <Sheet open={controls && !confirmClose} onClose={() => setControls(false)} title={agentLabel}>
         <div className="space-y-3">
           {pane ? (
             <div className="rounded-xl border border-ink-800 px-3">
@@ -250,17 +273,7 @@ export default function ChatPage() {
           <div className="grid grid-cols-2 gap-2">
             <Button onClick={() => void run("focused in herdr", () => callAction("agent.focus", { target: paneId }))}>Focus in herdr</Button>
             <Button onClick={() => void run("zoom toggled", () => callAction("pane.zoom", { pane_id: paneId, mode: "toggle" }))}>Zoom pane</Button>
-            <Button
-              onClick={() =>
-                void run("renamed", () => {
-                  const name = window.prompt("New pane title", pane?.title ?? "");
-                  if (!name) return Promise.resolve();
-                  return callAction("pane.rename", { pane_id: paneId, label: name });
-                })
-              }
-            >
-              Rename
-            </Button>
+            <Button onClick={() => setRenameTitle(pane?.title ?? "")}>Rename</Button>
             <Button onClick={() => void run("interrupted", () => callAction("agent.send_keys", { target: paneId, keys: ["ctrl+c"] }))}>
               Interrupt
             </Button>
@@ -289,20 +302,41 @@ export default function ChatPage() {
           <Button
             full
             tone="danger"
-            onClick={() =>
-              void run("pane closed", () => {
-                const warning = closeWarning(pane?.agent_status ?? "unknown");
-                if (warning && !window.confirm(`Close ${paneId}? It ${warning}, and closing kills the agent.`)) {
-                  return Promise.resolve();
-                }
-                return callAction("pane.close", { pane_id: paneId }, 20_000, pageSession ?? undefined);
-              })
-            }
+            onClick={() => {
+              // An ask we own, not window.confirm: an installed iOS web app answers that with
+              // false and no dialog, and the notice below would claim a close that never ran.
+              if (closeWarning(pane?.agent_status ?? "unknown")) setConfirmClose(true);
+              else void closePane();
+            }}
           >
             Close pane
           </Button>
         </div>
       </Sheet>
+
+      <ConfirmSheet
+        open={confirmClose}
+        title={`Close ${paneId}`}
+        body={`It ${closeWarning(pane?.agent_status ?? "unknown")}, and closing kills the agent.`}
+        confirmLabel="Close pane"
+        onConfirm={() => {
+          setConfirmClose(false);
+          void closePane();
+        }}
+        onClose={() => setConfirmClose(false)}
+      />
+
+      <PromptSheet
+        open={renameTitle !== null}
+        title={`Rename ${paneId}`}
+        field="Pane title"
+        value={renameTitle ?? ""}
+        placeholder="what this pane is for"
+        submitLabel="Rename"
+        onChange={setRenameTitle}
+        onSubmit={() => void submitRename()}
+        onClose={() => setRenameTitle(null)}
+      />
     </Screen>
   );
 }

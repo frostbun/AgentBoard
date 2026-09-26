@@ -80,6 +80,10 @@ Everything else herdr exposes (`layout.*`, `tab.*`, `worktree.*`, `notification.
 - **Form-control defaults live in `@layer base`.** `textarea, input, select, button { font: inherit }` has to be
   layered: an unlayered rule beats every layered utility whatever the specificity, so `text-sm`, `font-semibold`
   and `text-ink-950` on a button silently did nothing while that rule sat outside a layer.
+- **Destructive taps and renames ask in a sheet, never `window.confirm`/`window.prompt`.** An installed iOS web
+  app — how this board is read on a phone — answers `confirm` with `false` and `prompt` with `null` while showing
+  no dialog at all, so a tap gated on either is a dead button that also reports success. `ConfirmSheet` and
+  `PromptSheet` are the same question in the app's own chrome, where the user can see it.
 
 - **One herdr request per connection.** herdr answers a request and closes that connection (the shipped CLI does
   one request per process). Pooling a request connection makes it flap, so `lib/herdr/rpc.ts` opens a fresh

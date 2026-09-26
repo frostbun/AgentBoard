@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, IconButton, iconClass, Row, Screen, Sheet, StatusDot, TopBar } from "@/components/bits";
+import { Button, ConfirmSheet, IconButton, iconClass, PromptSheet, Row, Screen, Sheet, StatusDot, TopBar } from "@/components/bits";
 import {
   callAction,
   notificationHint,
@@ -23,6 +23,9 @@ import { agentName, sessionId } from "@/lib/herdr/names";
 import { closeWarning, paneTitle, type AttentionItem, type BoardPane, type WorkspaceInfo } from "@/lib/herdr/types";
 
 type SessionAttention = AttentionItem & { session: string };
+
+/** A destructive tap parked behind a sheet; `run` returns true when it asked a follow-up. */
+type Asked = { title: string; body: string; label: string; run: () => Promise<boolean> };
 
 /** Free-text match over everything a row shows, so one box searches agents and places. */
 function matches(pane: BoardPane, session: SessionSnapshot, workspace: WorkspaceInfo, needle: string): boolean {
@@ -220,6 +223,11 @@ export default function FleetPage() {
   const [workspaceCwd, setWorkspaceCwd] = useState("");
   const [home, setHome] = useState("");
   const [busy, setBusy] = useState(false);
+  const [asked, setAsked] = useState<Asked | null>(null);
+  const [asking, setAsking] = useState(false);
+  /** The pane being renamed: null closed, otherwise the pane, its session and the draft name. */
+  const [rename, setRename] = useState<{ pane: BoardPane; session: string; value: string } | null>(null);
+  const [renaming, setRenaming] = useState(false);
   const [resumeTarget, setResumeTarget] = useState<{
     workspace: WorkspaceInfo;
     session: string;
@@ -302,38 +310,64 @@ export default function FleetPage() {
     }
   };
 
-  const renameAgent = async (pane: BoardPane, sessionId: string) => {
-    const current = pane.display_agent ?? pane.agent ?? "";
-    const typed = window.prompt("Agent name (a-z, 0-9, - and _)", current);
+  /** herdr keeps the renameable name on the agent record; the ask is our sheet, not window.prompt. */
+  const openRename = (pane: BoardPane, sessionId: string) => {
+    setError(null);
+    setRename({ pane, session: sessionId, value: pane.display_agent ?? pane.agent ?? "" });
+  };
+
+  const submitRename = async () => {
+    const target = rename;
+    if (!target) return;
+    const typed = target.value.trim();
     if (!typed) return;
+    setRenaming(true);
     setError(null);
     try {
-      await callAction("agent.rename", { target: pane.pane_id, name: agentName(typed, pane.agent ?? "agent") }, 30_000, sessionId);
+      await callAction(
+        "agent.rename",
+        { target: target.pane.pane_id, name: agentName(typed, target.pane.agent ?? "agent") },
+        30_000,
+        target.session,
+      );
+      setRename(null);
     } catch (err) {
       const message = (err as Error).message;
+      setRename(null);
       setError(
         /launch_pending/i.test(message)
           ? "herdr refuses to rename while the agent is still starting — try again in a moment"
           : message,
       );
+    } finally {
+      setRenaming(false);
     }
   };
 
   /**
    * Closing kills the agent with the pane. An idle agent is finished and seen, so it goes
    * straight away; anything else — working, blocked, or finished but not yet reviewed — asks
-   * first and says which it is.
+   * first and says which it is. The ask is one of our sheets: the browser's own confirm is a
+   * no-op in the installed iOS web app this board is read in, which looks like a dead button.
    */
-  const closeAgent = async (pane: BoardPane, sessionId: string) => {
+  const closeAgent = (pane: BoardPane, sessionId: string) => {
     const label = pane.display_agent ?? pane.agent ?? pane.pane_id;
     const warning = closeWarning(pane.agent_status);
-    if (warning && !window.confirm(`Close ${label} (${pane.pane_id})? It ${warning}, and closing kills the agent.`)) return;
     setError(null);
-    try {
+    const close = async () => {
       await callAction("pane.close", { pane_id: pane.pane_id }, 20_000, sessionId);
-    } catch (err) {
-      setError((err as Error).message);
+      return false;
+    };
+    if (!warning) {
+      void close().catch((err) => setError((err as Error).message));
+      return;
     }
+    setAsked({
+      title: `Close ${label}`,
+      body: `${pane.pane_id}: it ${warning}, and closing kills the agent.`,
+      label: "Close pane",
+      run: close,
+    });
   };
 
   const loadResumeModels = (kind: string | null | undefined) => {
@@ -398,26 +432,55 @@ export default function FleetPage() {
   };
 
   /** Closing a workspace takes every pane with it, so the same rule as a pane applies. */
-  const closeWorkspace = async (workspace: WorkspaceInfo, sessionId: string) => {
+  const closeWorkspace = (workspace: WorkspaceInfo, sessionId: string) => {
     const panes = sessions.find((entry) => entry.id === sessionId)?.state.panes.filter((pane) => pane.workspace_id === workspace.workspace_id) ?? [];
     const busyPane = panes.find((pane) => closeWarning(pane.agent_status));
-    if (busyPane && !window.confirm(`Close workspace ${workspace.label}? It holds an agent that ${closeWarning(busyPane.agent_status)}.`)) return;
-    if (!panes.length && !window.confirm(`Close workspace ${workspace.label}?`)) return;
+    setError(null);
+    const close = (group: boolean) =>
+      callAction("workspace.close", { workspace_id: workspace.workspace_id, ...(group ? { close_group: true } : {}) }, 30_000, sessionId);
+    // herdr refuses to drop a primary workspace whose linked worktrees are still open.
+    const run = async (group: boolean): Promise<boolean> => {
+      try {
+        await close(group);
+        return false;
+      } catch (err) {
+        if (group || !/close_group|worktree/i.test((err as Error).message)) throw err;
+        setAsked({
+          title: `Close ${workspace.label}`,
+          body: `It holds linked worktree workspaces. Closing them too takes every pane in them.`,
+          label: "Close them too",
+          run: () => run(true),
+        });
+        return true;
+      }
+    };
+    if (!busyPane && panes.length) {
+      void run(false).catch((err) => setError((err as Error).message));
+      return;
+    }
+    setAsked({
+      title: `Close ${workspace.label}`,
+      body: busyPane
+        ? `It holds an agent that ${closeWarning(busyPane.agent_status)}. Closing the workspace takes every pane in it.`
+        : `It is empty. Closing it removes it from herdr.`,
+      label: "Close workspace",
+      run: () => run(false),
+    });
+  };
 
+  /** Runs the parked action; a follow-up question left in its place keeps the sheet open. */
+  const submit = async () => {
+    const request = asked;
+    if (!request) return;
+    setAsking(true);
     setError(null);
     try {
-      const close = async (group: boolean) =>
-        await callAction("workspace.close", { workspace_id: workspace.workspace_id, ...(group ? { close_group: true } : {}) }, 30_000, sessionId);
-      try {
-        await close(false);
-      } catch (err) {
-        // herdr refuses to drop a primary workspace whose linked worktrees are still open.
-        if (!/close_group|worktree/i.test((err as Error).message)) throw err;
-        if (!window.confirm(`${workspace.label} has linked worktree workspaces. Close them too?`)) return;
-        await close(true);
-      }
+      if (!(await request.run())) setAsked(null);
     } catch (err) {
       setError((err as Error).message);
+      setAsked(null);
+    } finally {
+      setAsking(false);
     }
   };
 
@@ -593,7 +656,7 @@ export default function FleetPage() {
                       workspace={workspace}
                       session={session}
                       needle={needle}
-                      onRename={renameAgent}
+                      onRename={openRename}
                       onClose={closeAgent}
                       onResume={openResume}
                       onCloseWorkspace={closeWorkspace}
@@ -615,7 +678,7 @@ export default function FleetPage() {
         </div>
       </main>
 
-      <Sheet open={removeTarget !== null} onClose={() => setRemoveTarget(null)} title={`${removeTarget?.label ?? ""} session`}>
+      <Sheet open={removeTarget !== null && asked === null} onClose={() => setRemoveTarget(null)} title={`${removeTarget?.label ?? ""} session`}>
         <div className="space-y-2">
           <Button
             full
@@ -629,8 +692,17 @@ export default function FleetPage() {
             tone="danger"
             disabled={busy || removeTarget?.name === "default"}
             onClick={() => {
-              if (!window.confirm(`Delete the ${removeTarget?.label} session? Its workspaces, transcripts and logs go away.`)) return;
-              void changeSession(removeTarget?.name ?? "", true);
+              const target = removeTarget;
+              if (!target) return;
+              setAsked({
+                title: `Delete ${target.label}`,
+                body: `Its workspaces, transcripts and logs go away, and agents running in it are killed.`,
+                label: "Delete the session",
+                run: async () => {
+                  await changeSession(target.name, true);
+                  return false;
+                },
+              });
             }}
           >
             Delete the session
@@ -811,6 +883,30 @@ export default function FleetPage() {
           </p>
         </div>
       </Sheet>
+
+      <ConfirmSheet
+        open={asked !== null}
+        title={asked?.title ?? ""}
+        body={asked?.body ?? ""}
+        confirmLabel={asked?.label}
+        busy={asking}
+        onConfirm={() => void submit()}
+        onClose={() => setAsked(null)}
+      />
+
+      <PromptSheet
+        open={rename !== null}
+        title={`Rename ${rename?.pane.display_agent ?? rename?.pane.agent ?? "agent"}`}
+        field="Agent name"
+        value={rename?.value ?? ""}
+        placeholder={rename?.pane.agent ?? "agent"}
+        hint="Letters, digits, dash and underscore. herdr keeps agent names unique per session."
+        submitLabel="Rename"
+        busy={renaming}
+        onChange={(value) => setRename((current) => (current ? { ...current, value } : current))}
+        onSubmit={() => void submitRename()}
+        onClose={() => setRename(null)}
+      />
     </Screen>
   );
 }

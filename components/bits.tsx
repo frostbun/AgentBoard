@@ -107,6 +107,112 @@ export function Sheet({
   );
 }
 
+/**
+ * Yes/no sheet for a tap that destroys something.
+ *
+ * `window.confirm` is why this exists: an installed iOS web app answers it with `false`
+ * without ever showing the dialog, so a close gated on it looks like a dead button.
+ */
+export function ConfirmSheet({
+  open,
+  title,
+  body,
+  confirmLabel = "Confirm",
+  tone = "danger",
+  busy,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  body: string;
+  confirmLabel?: string;
+  tone?: Tone;
+  busy?: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Sheet open={open} onClose={onClose} title={title}>
+      <div className="space-y-3">
+        <p className="text-sm text-ink-200">{body}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <Button full disabled={busy} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button full tone={tone} disabled={busy} onClick={onConfirm}>
+            {busy ? "working…" : confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+/**
+ * Sheet with one text field — the same reason as `ConfirmSheet`: an installed iOS web app
+ * answers `window.prompt` with `null` without showing anything, so the tap is a dead button
+ * that also reports nothing.
+ */
+export function PromptSheet({
+  open,
+  title,
+  field,
+  value,
+  placeholder,
+  hint,
+  submitLabel = "Save",
+  busy,
+  onChange,
+  onSubmit,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  /** Small-caps caption above the field. */
+  field: string;
+  value: string;
+  placeholder?: string;
+  hint?: string;
+  submitLabel?: string;
+  busy?: boolean;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Sheet open={open} onClose={onClose} title={title}>
+      <div className="space-y-3">
+        <label className="block">
+          <span className="mb-1 block text-[0.7rem] uppercase tracking-wide text-ink-400">{field}</span>
+          <input
+            value={value}
+            placeholder={placeholder}
+            onChange={(event) => onChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") onSubmit();
+            }}
+            autoFocus
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            className="field"
+          />
+        </label>
+        {hint ? <p className="text-[0.7rem] text-ink-400">{hint}</p> : null}
+        <div className="grid grid-cols-2 gap-2">
+          <Button full disabled={busy} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button full tone="primary" disabled={busy} onClick={onSubmit}>
+            {busy ? "working…" : submitLabel}
+          </Button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
 export function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4 border-b border-ink-850 py-2 last:border-0">
