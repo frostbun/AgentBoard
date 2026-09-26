@@ -136,18 +136,39 @@ export async function POST(request: Request): Promise<Response> {
     const paneId = pickPane(split);
     if (!paneId) return Response.json({ error: `unexpected split response: ${PANE_RESULT.test(JSON.stringify(split))}` }, { status: 502 });
 
-    await herdrRequest(
-      "agent.start",
-      {
-        name: freeAgentName(`${label}-resume`, state.agents.map((agent) => agent.name)),
-        kind,
-        pane_id: paneId,
-        args,
-        timeout_ms: 120_000,
-      },
-      180_000,
-      socket,
-    );
+    const start = {
+      name: freeAgentName(`${label}-resume`, state.agents.map((agent) => agent.name)),
+      kind,
+      pane_id: paneId,
+      args,
+      timeout_ms: 120_000,
+    };
+    // A fresh split's shell is not at its prompt the instant the pane exists, and herdr
+    // refuses `agent.start` with `agent_pane_busy` until it is. The ready shell arrives
+    // within a few hundred ms (a shell with a heavy rc longer), so retry briefly.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await herdrRequest("agent.start", start, 180_000, socket);
+        break;
+      } catch (err) {
+        const busy = /agent_pane_busy|not an available shell/i.test((err as Error).message);
+        if (!busy || attempt >= 8) throw err;
+        const backoff = Promise.withResolvers<void>();
+        setTimeout(backoff.resolve, 250 * attempt);
+        await backoff.promise;
+      }
+    }
+    // The client navigates straight to the new pane, which needs its herdr session
+    // reference to read the transcript. `agent.start` returns before herdr's own snapshot
+    // exposes it, so poll a moment until the pane is nameable.
+    for (let attempt = 1; attempt <= 8; attempt += 1) {
+      await board(session).refresh();
+      const started = board(session).getState().panes.find((pane) => pane.pane_id === paneId);
+      if (started?.agent_session) break;
+      const wait = Promise.withResolvers<void>();
+      setTimeout(wait.resolve, 300);
+      await wait.promise;
+    }
     board(session).scheduleRefresh(200);
     return Response.json({ pane_id: paneId, kind, resumed: sessionId(ref) });
   } catch (err) {

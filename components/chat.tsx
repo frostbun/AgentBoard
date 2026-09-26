@@ -288,16 +288,18 @@ function TurnTimer({ since }: { since: number }) {
   return <span>{formatDuration(Math.max(0, now - since))}</span>;
 }
 
-export function MessageList({ session, running = false }: { session: ChatSession; running?: boolean }) {
+export function MessageList({ session, running = false, waiting = false }: { session: ChatSession; running?: boolean; waiting?: boolean }) {
   const turns = useMemo(() => turnsOf(session.messages), [session.messages]);
   if (!session.messages.length) {
     return (
       <div className="p-6 text-center text-sm text-ink-400">
-        {session.awaitingFirstMessage
-          ? "No messages yet — this agent has not taken its first turn. Prompt it below."
-          : session.error
-            ? session.error
-            : "No transcript yet — prompt the agent or open the Terminal tab."}
+        {waiting
+          ? "Waiting for herdr to report this agent's session…"
+          : session.awaitingFirstMessage
+            ? "No messages yet — this agent has not taken its first turn. Prompt it below."
+            : session.error
+              ? session.error
+              : "No transcript yet — prompt the agent or open the Terminal tab."}
       </div>
     );
   }

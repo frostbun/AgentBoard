@@ -96,6 +96,33 @@ export default function ChatPage() {
 
   const pending = session?.pending ?? null;
 
+  /**
+   * A pane the board does not know a session for yet: a just-spawned or just-resumed agent
+   * gets one a moment after herdr recognises it. Poll quickly for a while, so the chat opens
+   * onto the transcript instead of the "no session reference" notice; a pane whose
+   * integration never reports one keeps that notice after the wait.
+   */
+  const [waitingForSession, setWaitingForSession] = useState(false);
+  useEffect(() => {
+    // A shell pane never reports a session, so there is nothing to wait for.
+    if (pageSession === null || pane?.agent_session || !pane?.agent) {
+      setWaitingForSession(false);
+      return;
+    }
+    setWaitingForSession(true);
+    const fast = setInterval(() => {
+      if (!document.hidden) void loadTranscript();
+    }, 1000);
+    const giveUp = setTimeout(() => {
+      clearInterval(fast);
+      setWaitingForSession(false);
+    }, 20_000);
+    return () => {
+      clearInterval(fast);
+      clearTimeout(giveUp);
+    };
+  }, [pageSession, loadTranscript, pane?.agent, pane?.agent_session]);
+
   useEffect(() => {
     if (session?.pending) void loadTranscript();
   }, [session?.pending, loadTranscript]);
@@ -239,7 +266,7 @@ export default function ChatPage() {
       <div ref={scroller} onScroll={onScroll} className="scroll-y min-h-0 flex-1">
         {view === "chat" ? (
           session ? (
-            <MessageList session={session} running={pane?.agent_status === "working"} />
+            <MessageList session={session} running={pane?.agent_status === "working"} waiting={waitingForSession} />
           ) : (
             <div className="p-6 text-center text-sm text-ink-400">loading transcript…</div>
           )
