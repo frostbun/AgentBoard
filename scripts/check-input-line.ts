@@ -85,6 +85,19 @@ const cases: Array<[string, string, string | null]> = [
     null,
   ],
   ["placeholder is not input", ["╭──────────╮", "│ > Type your message… │", "╰──────────╯"].join("\n"), null],
+  // Copied from a real claude 2.1.283 screen (`herdr pane read`): its empty input renders the
+  // greyed-out `Try "<example>"` hint on the `❯` line. A narrow pane truncates it mid-quote.
+  [
+    "claude empty-input placeholder is not input",
+    [
+      "────────────────────────────────────────────",
+      '❯ Try "create a util logging.py that..."',
+      "────────────────────────────────────────────",
+      "  ⏵⏵ auto mode on (shift+tab to cycle)",
+    ].join("\n"),
+    null,
+  ],
+  ["claude placeholder truncated by a narrow pane is not input", ['❯ Try "refactor globa…'].join("\n"), null],
   ["plain output is not input", ["  ⎿  Read src/index.ts (120 lines)", "  ⎿  Bash: bun test"].join("\n"), null],
   [
     "dialog option rows are not input",

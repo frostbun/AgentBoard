@@ -17,7 +17,12 @@ const PANEL_BORDER = /[┬┴├┤┼]/;
 const TOP_BORDER = /^\s*[╭┌]/;
 const SIDE_ROW = /^\s*[│┃]/;
 const HINT = /\b(esc|enter|tab|shift|ctrl|↑|↓|←|→)\b.*·|·\s*(esc|enter|tab|shift|ctrl)/i;
-const PLACEHOLDER = /^(type (your )?(message|answer|prompt|something)[.…]*|ask anything[.…]*|how can i help[?]?)$/i;
+/**
+ * `Try "…"` is claude's greyed-out example prompt (its empty input). `pane.read` strips the ANSI
+ * that makes it grey, so it is indistinguishable from a draft by colour — only by shape. A narrow
+ * pane truncates it to `Try "…` with no closing quote.
+ */
+const PLACEHOLDER = /^(type (your )?(message|answer|prompt|something)[.…]*|ask anything[.…]*|how can i help[?]?|try\s?"[^"]*"?)$/i;
 /** Numbered rows belong to a picker/dialog, not the prompt box. */
 const LIST_ROW = /^\d+[.)]\s/;
 /** A bare prompt line (claude, and shells). */
