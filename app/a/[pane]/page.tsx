@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentNav } from "@/components/agent-nav";
 import { Button, ConfirmSheet, IconButton, iconClass, PromptSheet, Row, Screen, Sheet, StatusPill } from "@/components/bits";
-import { Composer, MessageList, ModelChip, QuestionCard } from "@/components/chat";
+import { Composer, MessageList, ModelChip, PlanCard, QuestionCard } from "@/components/chat";
 import { UsageBar } from "@/components/usage";
 import { activeSession, callAction, shortCwd, useBoard, withSession } from "@/components/use-board";
 import { resumeCommand } from "@/lib/herdr/names";
@@ -274,6 +274,16 @@ export default function ChatPage() {
           <pre className="p-3 text-[0.68rem] leading-relaxed whitespace-pre-wrap text-ink-200">{paneText || "reading pane…"}</pre>
         )}
       </div>
+
+      {session?.plan ? (
+        <PlanCard
+          paneId={paneId}
+          plan={session.plan}
+          tokens={session.usage?.context_tokens}
+          max={session.usage?.context_max}
+          session={pageSession ?? undefined}
+        />
+      ) : null}
 
       {session?.pending ? <QuestionCard paneId={paneId} pending={session.pending} session={pageSession ?? undefined} /> : null}
 

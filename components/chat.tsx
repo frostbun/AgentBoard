@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ChatMsg, ChatQuestion, ChatSession, ChatToolBlock, PendingQuestion } from "@/lib/chat/types";
+import type { ChatMsg, ChatQuestion, ChatSession, ChatToolBlock, PendingQuestion, PlanProposal } from "@/lib/chat/types";
 import { Button, IconButton, Row, Sheet } from "./bits";
 import { formatDuration } from "./usage";
 import { modelCommand, supportsModel } from "@/lib/herdr/names";
@@ -598,6 +598,140 @@ export function QuestionCard({
           </pre>
         </details>
       ) : null}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------- plan mode -- */
+
+/**
+ * omp's plan-mode review select in omp's own order and wording. "Approve and keep context"
+ * is index 2 and omp disables that row above 95% context, where `down` skips it — the key
+ * math has to skip the row too, or the tap lands on "Refine plan".
+ */
+const PLAN_OPTIONS = [
+  { label: "Approve and execute", hint: "fresh context — the session is cleared first" },
+  { label: "Approve and compact context", hint: "discussion distilled, then it runs here" },
+  { label: "Approve and keep context", hint: "runs here, with the exploration history", keepRow: true },
+  { label: "Refine plan", hint: "keeps planning — type the change, or send it as a follow-up" },
+  { label: "Save and quit", hint: "copies the plan to a chosen path, then starts a new session" },
+];
+
+/** Title of omp's overlay; the select only takes keys while it is on screen. */
+const PLAN_DIALOG = /plan mode - next step/i;
+
+/**
+ * Answers omp's plan review. The select is a list cursor driven by `down`/`enter` — never
+ * `up`, which parks the overlay in its scroll body — so one tap is one delta from row 0,
+ * and the row omp hides above 95% context is dropped from the list to keep that math true.
+ */
+export function PlanCard({
+  paneId,
+  plan,
+  tokens,
+  max,
+  session,
+}: {
+  paneId: string;
+  plan: PlanProposal;
+  /** Live context and its window: omp disables "keep context" when the fill is over 95%. */
+  tokens?: number;
+  max?: number;
+  session?: string;
+}) {
+  const [screen, setScreen] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  /** Set by a send: keystrokes cannot be un-sent, so the rows stay locked until the select closes. */
+  const [locked, setLocked] = useState(false);
+  const [sent, setSent] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const dropped = tokens !== undefined && max !== undefined && tokens / max > 0.95;
+  /** The row omp disables at >95% context; navigation skips it, so the delta has to as well. */
+  const hidden = dropped ? PLAN_OPTIONS.findIndex((option) => option.keepRow) : -1;
+  const rows = PLAN_OPTIONS.map((option, index) => ({ ...option, index })).filter((row) => !(dropped && row.keepRow));
+  const keysTo = (index: number) =>
+    Array.from({ length: hidden >= 0 && index > hidden ? index - 1 : index }, () => "down").concat("enter");
+  const describe = (keys: string[]) => keys.map((key) => (key === "down" ? "↓" : key === "enter" ? "⏎" : key)).join(" ");
+
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      if (document.hidden) return;
+      let text: string | null = null;
+      try {
+        const response = await fetch(`/api/pane-text?pane=${encodeURIComponent(paneId)}&lines=24&source=visible`, { cache: "no-store" });
+        const payload = (await response.json()) as { text?: string };
+        text = payload.text ?? "";
+      } catch {
+        /* an unread screen is not a licence to type: keys stay locked below */
+      }
+      if (!alive || text === null) return;
+      setScreen(text);
+      // omp reopens the select on row 0, so once it is gone the cursor we track is stale no more.
+      if (!PLAN_DIALOG.test(text)) setLocked(false);
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 1200);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [paneId]);
+
+  // Until the pane has been read there is nothing to go on, so the first paint stays enabled.
+  const open = screen === null || PLAN_DIALOG.test(screen);
+  const pick = async (index: number, label: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const keys = keysTo(index);
+      await callAction("pane.send_keys", { pane_id: paneId, keys }, 30_000, session);
+      setLocked(true);
+      setSent(`sent ${describe(keys)} — ${label}`);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-[var(--color-accent)]/30 bg-[var(--color-accent)]/5 px-3 py-3">
+      <div className="mb-1 flex items-center gap-2 text-[0.8rem] font-semibold tracking-wide text-[var(--color-accent)] uppercase">
+        <span className="spinner-dot">●</span> plan ready for review
+      </div>
+      <div className="prose-chat text-base text-white">{plan.title || "plan"}</div>
+      <div className="mt-0.5 font-mono text-[0.75rem] text-ink-400">
+        {plan.file ?? (plan.title ? `local://${plan.title}-plan.md` : "")}
+      </div>
+
+      <div className="mt-2 space-y-1.5">
+        {rows.map((row) => (
+          <button
+            key={row.label}
+            type="button"
+            disabled={busy || !open || locked}
+            onClick={() => void pick(row.index, row.label)}
+            className="tap w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-left text-base active:bg-ink-800 disabled:opacity-50"
+          >
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1">{row.label}</span>
+              <span className="font-mono text-[0.7rem] text-ink-400">{describe(keysTo(row.index))}</span>
+            </div>
+            <div className="mt-0.5 text-[0.85rem] text-ink-400">{row.hint}</div>
+          </button>
+        ))}
+      </div>
+
+      {dropped ? <div className="mt-2 text-[0.8rem] text-ink-400">context is over 95% full — omp hides “Approve and keep context”</div> : null}
+      {!open ? (
+        <div className="mt-2 text-[0.8rem] text-ink-400">
+          the review select is not on screen any more — reopen it in the agent with <code>/plan-review</code>
+        </div>
+      ) : null}
+      {sent ? <div className="mt-2 text-[0.8rem] text-ink-400">{sent}</div> : null}
+      {error ? <div className="mt-2 text-[0.8rem] text-[var(--color-blocked)]">{error}</div> : null}
     </div>
   );
 }

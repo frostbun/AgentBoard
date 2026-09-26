@@ -42,6 +42,18 @@ export type PendingQuestion = {
   index: number;
 };
 
+/**
+ * A plan omp put up for approval in plan mode. The agent submits the slug/title to
+ * `xd://propose`, which opens the TUI's own "Plan mode - next step" select; the board mirrors
+ * that select so the phone can answer it with the same keystrokes.
+ */
+export type PlanProposal = {
+  /** `local://<slug>-plan.md` — the file omp executes from once approved. */
+  file: string | null;
+  /** The slug omp shows for the plan; the file is `local://<slug>-plan.md`. */
+  title: string;
+};
+
 /** Every usage field except the non-numeric annotations. */
 export type NumericUsageField = Exclude<keyof ChatUsage, "context_max_source">;
 
@@ -84,6 +96,8 @@ export type ChatSession = {
   started_at: string | null;
   messages: ChatMsg[];
   pending: PendingQuestion | null;
+  /** Set while omp's plan-mode review select is waiting for an answer. */
+  plan?: PlanProposal | null;
   usage?: ChatUsage;
   truncated?: boolean;
   error?: string;
@@ -120,6 +134,7 @@ export function emptySession(agent: string, error?: string): ChatSession {
     started_at: null,
     messages: [],
     pending: null,
+    plan: null,
     error,
   };
 }

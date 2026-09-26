@@ -66,6 +66,7 @@ bun run typecheck    # tsc --noEmit (NOT part of `check`)
 bun run check        # the de-facto test suite, see below
 bun run check:sessions       # scripts/check-session-guard.ts
 bun run check:session-list   # scripts/check-session-list.ts
+bun run check:plan-propose   # scripts/check-plan-propose.ts
 
 AGENTBOARD_TOKEN=$(openssl rand -hex 16) bun run dev   # pin a token
 AGENTBOARD_OPEN=1 bun run dev                          # trusted networks only
@@ -121,10 +122,10 @@ Note: README's `Files` block is a curated map, not an index — it omits `lib/au
 
 ## Testing & QA
 
-There is **no test framework, no test directory, no CI and no coverage tooling** — deliberately. Verification is five standalone, framework-free scripts run by Bun:
+There is **no test framework, no test directory, no CI and no coverage tooling** — deliberately. Verification is six standalone, framework-free scripts run by Bun:
 
 ```bash
-bun run check   # check-input-line && check-models && check-names && check-session-guard && check-session-list
+bun run check   # check-input-line && check-models && check-names && check-session-guard && check-session-list && check-plan-propose
 bun run typecheck
 ```
 
@@ -134,7 +135,8 @@ bun run typecheck
 | `scripts/check-models.ts` | `parseOmpModels` (`lib/herdr/models.ts`) against an inline `models.yml` fixture |
 | `scripts/check-names.ts` | `agentName`/`freeAgentName` slug, uniqueness, 32-char rules |
 | `scripts/check-session-guard.ts` | Session-id traversal (incl. `..`, `a/b`, `a\0b`) against the real `state`/`stream`/`action` handlers over fake unix-socket herdr servers; asserts no board is minted for ghost ids |
-| `scripts/check-session-list.ts` | `listAgentSessions` + omp/claude/opencode outcome labels over temp fake stores |
+|`scripts/check-session-list.ts`|`listAgentSessions` + omp/claude/opencode outcome labels over temp fake stores|
+|`scripts/check-plan-propose.ts`|omp plan-mode proposals (`xd://propose` write + result details + `mode_change` pairs) that arm the plan card|
 
 `scripts/check-usage.ts <claude.jsonl> <omp.jsonl> <opencode-session-id>` is a manual inspection tool, intentionally not in `check`.
 

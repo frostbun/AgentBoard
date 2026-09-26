@@ -45,7 +45,7 @@ export function questionsFromToolArgs(args: unknown): ChatQuestion[] {
 
 /**
  * omp session JSONL (`~/.omp/agent/sessions/<slug>/<ts>_<id>.jsonl`).
- * Records: session, title, model_change, message (user|assistant|toolResult), custom.
+ * Records: session, title, model_change, mode_change, message (user|assistant|toolResult), custom.
  */
 export function readOmpSession(file: string, limit: number): ChatSession {
   const records = readJsonlTail(file);
@@ -55,6 +55,10 @@ export function readOmpSession(file: string, limit: number): ChatSession {
 
   const messages: ChatMsg[] = [];
   const tools = new Map<string, ChatToolBlock>();
+  const proposeCalls = new Set<string>();
+  let planFile: string | null = null;
+  /** Title of the plan on the table, cleared when plan mode ends so nothing stale surfaces. */
+  let proposeTitle: string | null = null;
   const usage: ChatUsage = {};
   let firstAt: number | null = null;
   let lastCompletedAt: number | null = null;
@@ -76,6 +80,18 @@ export function readOmpSession(file: string, limit: number): ChatSession {
     }
     if (type === "model_change") {
       session.model = asString(rec.model) ?? session.model;
+      continue;
+    }
+    // Plan mode: the entry record names the default plan file, and omp rewrites the record
+    // when a proposal names its own. Leaving plan mode is the answer to the proposal — the
+    // approve options, "Save and quit", and the terminal's own exit all write `mode: "none"`.
+    if (type === "mode_change") {
+      if (asString(rec.mode) === "plan") {
+        planFile = asString(asRecord(rec.data)?.planFilePath) ?? planFile;
+      } else {
+        proposeTitle = null;
+        planFile = null;
+      }
       continue;
     }
     if (type === "custom") {
@@ -120,6 +136,12 @@ export function readOmpSession(file: string, limit: number): ChatSession {
       if (block) {
         block.result = blockText(message.content);
         block.state = message.isError === true ? "error" : "ok";
+        // The result carries omp's own view of the proposal (the same payload it hands the
+        // review select), so its title wins over the slug the write's first line supplied.
+        if (callId && proposeCalls.has(callId)) {
+          const inner = asRecord(asRecord(asRecord(message.details)?.xdev)?.inner);
+          proposeTitle = asString(inner?.title) ?? proposeTitle;
+        }
       }
       continue;
     }
@@ -137,6 +159,7 @@ export function readOmpSession(file: string, limit: number): ChatSession {
         if (text) blocks.push({ kind: "thinking", text });
       } else if (kind === "toolCall") {
         const id = asString(block.id) ?? `tool-${messages.length}-${blocks.length}`;
+        const args = asRecord(block.arguments);
         const tool: ChatToolBlock = {
           kind: "tool",
           id,
@@ -148,6 +171,11 @@ export function readOmpSession(file: string, limit: number): ChatSession {
         if (questions.length) {
           tool.question = questions[0];
           tool.questionTotal = questions.length;
+        }
+        // `xd://propose` is how plan mode submits a plan; the write's content is slug + title.
+        if (tool.name === "write" && asString(args?.path) === "xd://propose") {
+          proposeCalls.add(id);
+          proposeTitle = (asString(args?.content) ?? "").split("\n")[0].trim();
         }
         blocks.push(tool);
         tools.set(id, tool);
@@ -166,6 +194,7 @@ export function readOmpSession(file: string, limit: number): ChatSession {
   session.messages = kept;
   session.truncated = truncated;
   session.pending = pendingFromBlocks(kept);
+  session.plan = proposeTitle === null ? null : { file: planFile, title: proposeTitle };
 
   if (firstAt !== null && lastCompletedAt !== null) usage.wall_ms = Math.max(0, lastCompletedAt - firstAt);
   const cacheRead = usage.cache_read_tokens ?? 0;

@@ -61,6 +61,7 @@ pause while the tab is hidden.
 | Turn times in the chat: how long each turn took, and a live counter while the agent is still on one | the transcript's own message timestamps |
 | Transcripts come from herdr's own `agent_session` reference and nothing else: a pane without one reports the session missing (the Terminal tab still works), never a guess from the pane's directory | `session.snapshot` → `agent_session` → that agent's own session file/db |
 | Pending-question cards with option buttons; answers sent as keystrokes | transcript tool calls + `pane.send_keys` / `pane.send_text` |
+| Plan mode: omp submits a plan with a write to `xd://propose`, which opens its own *Plan mode - next step* select; the board mirrors that select as a card, so approve / refine / save are one tap on the phone | transcript `mode_change` records + `pane.send_keys` |
 | Spawn: existing workspace, new workspace, or isolated git worktree; the agent gets a tab of its own; optional first prompt | `tab.create`, `workspace.create`, `worktree.create`, `agent.start` |
 | Prompt & steer: composer, Esc/Ctrl-C/arrows, interrupt, rename, zoom, focus, close pane | `agent.prompt`, `agent.send_keys`, `pane.*` |
 | Prompt hygiene: a prompt sent from the board empties the agent's input line first, so a draft left in the pane cannot ride along in front of it | `pane.read` + input-line parser, `pane.send_keys` backspaces |
@@ -100,6 +101,15 @@ Everything else herdr exposes (`layout.*`, `tab.*`, `worktree.*`, `notification.
 - **Markdown in transcripts is rendered**, including GFM tables, fenced code, headings, lists, inline code, bold, and links.
 - **Terminal answers are keystrokes.** Option *n* is `down`×n + `enter`; multi-select toggles with `space` and
   submits with `enter`. The button labels show exactly what gets sent.
+- **The plan review is omp's own select, answered the same way.** Plan mode submits by writing `xd://propose`, and
+  omp answers that tool result by opening a five-row select (approve and execute / compact / keep context, refine
+  plan, save and quit); leaving plan mode writes `mode_change ... "none"`. The card shows those rows in omp's own
+  order and wording, and keeps its arithmetic honest: the cursor starts on row 0, omp disables "Approve and keep
+  context" above 95% context where `down` skips it, so the card drops that row and sends `down`×n accordingly
+  (never `up`, which parks the overlay in its scroll body). A send locks the rows until a poll sees the select
+  gone — it reopens on row 0, so the lock only protects against a second tap landing on the wrong row — and no row
+  is tappable while the pane text does not show the dialog, because those keystrokes would otherwise land in the
+  agent's prompt.
 - **A prompt is written into an empty input line.** The composer does not mirror into the pane — a draft lives
   here until Send, and what you type in herdr is not adopted into the box. `POST /api/prompt` reads the pane's
   rendered screen first and backspaces away whatever the input line already held: `agent.prompt` and
