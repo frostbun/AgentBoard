@@ -3,12 +3,11 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Row, Screen, Sheet, StatusPill } from "@/components/bits";
-import { Composer, MessageList, QuestionCard } from "@/components/chat";
-import { SessionChip } from "@/components/session-chip";
+import { Button, IconButton, iconClass, Row, Screen, Sheet, StatusPill } from "@/components/bits";
+import { Composer, MessageList, ModelChip, QuestionCard } from "@/components/chat";
 import { UsageBar } from "@/components/usage";
 import { activeSession, callAction, shortCwd, useBoard, withSession } from "@/components/use-board";
-import { resumeCommand } from "@/lib/chat/resume";
+import { resumeCommand } from "@/lib/herdr/names";
 import type { ChatSession } from "@/lib/chat/types";
 import type { BoardPane } from "@/lib/herdr/types";
 import { closeWarning, paneTitle } from "@/lib/herdr/types";
@@ -160,6 +159,7 @@ export default function ChatPage() {
   };
 
   const agentLabel = pane?.display_agent ?? pane?.agent ?? "pane";
+  // Resume needs herdr's own session reference; without one the chat says so instead of guessing.
   const resume = resumeCommand(pane?.agent, pane?.agent_session);
 
   const copy = (value: string) =>
@@ -171,7 +171,7 @@ export default function ChatPage() {
     <Screen>
       <header className="pad-top sticky top-0 z-20 border-b border-ink-850 bg-ink-950/90 px-3 pb-2 backdrop-blur">
         <div className="flex items-center gap-2">
-          <Link href="/" className="tap inline-flex items-center rounded-xl px-2 text-ink-400">
+          <Link href="/" className={`${iconClass()} text-lg`} aria-label="Back to the board">
             ←
           </Link>
           <div className="min-w-0 flex-1">
@@ -184,23 +184,25 @@ export default function ChatPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <SessionChip value={pageSession || state?.session || ""} readOnly />
-            <button type="button" onClick={() => setControls(true)} className="tap rounded-xl border border-ink-700 px-3 text-ink-200">
+            <IconButton label="Pane controls" onClick={() => setControls(true)}>
               ⋯
-            </button>
+            </IconButton>
           </div>
         </div>
-        <div className="mt-2 flex gap-1 rounded-xl border border-ink-800 p-0.5 text-xs">
-          {(["chat", "terminal"] as const).map((name) => (
-            <button
-              key={name}
-              type="button"
-              onClick={() => setView(name)}
-              className={`flex-1 rounded-lg py-1.5 capitalize ${view === name ? "bg-ink-800 text-white" : "text-ink-400"}`}
-            >
-              {name}
-            </button>
-          ))}
+        <div className="mt-2 flex items-center gap-2">
+          <div className="flex flex-1 gap-1 rounded-xl border border-ink-800 p-0.5 text-sm">
+            {(["chat", "terminal"] as const).map((name) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => setView(name)}
+                className={`tap min-h-9 flex-1 rounded-lg capitalize ${view === name ? "bg-ink-800 text-white" : "text-ink-400"}`}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          <ModelChip paneId={paneId} session={pageSession ?? undefined} agent={pane?.agent} model={session?.model ?? null} />
         </div>
       </header>
 
@@ -212,15 +214,7 @@ export default function ChatPage() {
       <div ref={scroller} onScroll={onScroll} className="scroll-y min-h-0 flex-1">
         {view === "chat" ? (
           session ? (
-            <>
-              {session.refSource === "discovered" ? (
-                <div className="px-3 pt-3 text-[0.65rem] leading-snug text-ink-400">
-                  transcript inferred from this pane's working directory — herdr has no session reference for
-                  {` ${pane?.agent ?? "the agent"}`}, so the newest session for that project is shown
-                </div>
-              ) : null}
-              <MessageList session={session} />
-            </>
+            <MessageList session={session} running={pane?.agent_status === "working"} />
           ) : (
             <div className="p-6 text-center text-sm text-ink-400">loading transcript…</div>
           )
@@ -244,6 +238,7 @@ export default function ChatPage() {
         <div className="space-y-3">
           {pane ? (
             <div className="rounded-xl border border-ink-800 px-3">
+              <Row label="herdr session" value={pageSession || state?.session || "—"} />
               <Row label="pane" value={pane.pane_id} />
               <Row label="status" value={pane.agent_status} />
               <Row label="title" value={paneTitle(pane) ?? "—"} />
@@ -276,7 +271,7 @@ export default function ChatPage() {
           {resume ? (
             <div className="rounded-xl border border-ink-800 p-3">
               <div className="mb-1 text-xs uppercase tracking-wide text-ink-400">Resume locally</div>
-              <code className="block truncate text-xs text-ink-200">{resume}</code>
+              <code className="block truncate font-mono text-sm text-ink-200">{resume}</code>
               <div className="mt-2">
                 <Button full onClick={() => void copy(resume)}>
                   Copy resume command

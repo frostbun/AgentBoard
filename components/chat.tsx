@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ChatMsg, ChatQuestion, ChatSession, ChatToolBlock, PendingQuestion } from "@/lib/chat/types";
-import { Button } from "./bits";
+import { Button, IconButton, Row, Sheet } from "./bits";
+import { formatDuration } from "./usage";
+import { modelCommand, supportsModel } from "@/lib/herdr/names";
 import { activeSession, callAction, useAutoGrow, useTypeMirror, withSession } from "./use-board";
 
 /* ------------------------------------------------------------------ text -- */
@@ -51,7 +53,7 @@ function cellsOf(row: string): string[] {
 function Table({ rows, header, tableKey }: { rows: string[][]; header: string[]; tableKey: string }) {
   return (
     <div className="scroll-y my-2 max-w-full overflow-x-auto rounded-lg border border-ink-800">
-      <table className="w-full border-collapse text-[0.78rem]">
+      <table className="w-full border-collapse text-[0.85rem]">
         <thead>
           <tr className="bg-ink-900">
             {header.map((cell, index) => (
@@ -154,7 +156,7 @@ export function RichText({ text }: { text: string }) {
     if (tail.trim()) out.push(<div key={`p${index}`}>{proseNodes(tail, `p${index}`)}</div>);
     return out;
   }, [text]);
-  return <div className="prose-chat text-[0.9rem] leading-relaxed">{nodes}</div>;
+  return <div className="prose-chat text-base leading-relaxed">{nodes}</div>;
 }
 
 /* ------------------------------------------------------------------ tools -- */
@@ -182,7 +184,7 @@ function ToolState({ state }: { state: ChatToolBlock["state"] }) {
       : state === "error"
         ? "text-[var(--color-blocked)]"
         : "text-[var(--color-done)]";
-  return <span className={`${tone} text-[0.7rem] ${state === "running" ? "spinner-dot" : ""}`}>{glyph}</span>;
+  return <span className={`${tone} text-[0.8rem] ${state === "running" ? "spinner-dot" : ""}`}>{glyph}</span>;
 }
 
 export function ToolCard({ block }: { block: ChatToolBlock }) {
@@ -193,19 +195,19 @@ export function ToolCard({ block }: { block: ChatToolBlock }) {
     <div className="my-1 overflow-hidden rounded-xl border border-ink-800 bg-ink-900/70">
       <button type="button" onClick={() => setOpen((value) => !value)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
         <ToolState state={block.state} />
-        <span className="font-mono text-[0.72rem] text-ink-200">{block.name}</span>
-        <span className="min-w-0 flex-1 truncate text-[0.72rem] text-ink-400">{toolSummary(block)}</span>
-        <span className="text-[0.65rem] text-ink-400">{open ? "▾" : "▸"}</span>
+        <span className="font-mono text-[0.85rem] text-ink-200">{block.name}</span>
+        <span className="min-w-0 flex-1 truncate text-[0.85rem] text-ink-400">{toolSummary(block)}</span>
+        <span className="text-[0.75rem] text-ink-400">{open ? "▾" : "▸"}</span>
       </button>
       {open ? (
         <div className="space-y-2 border-t border-ink-850 px-3 py-2">
           {args && args !== "{}" ? (
-            <pre className="scroll-y max-h-52 rounded-lg bg-ink-950 p-2 text-[0.7rem] text-ink-200">{args}</pre>
+            <pre className="scroll-y max-h-52 rounded-lg bg-ink-950 p-2 text-[0.8rem] text-ink-200">{args}</pre>
           ) : null}
           {result ? (
-            <pre className="scroll-y max-h-72 rounded-lg bg-ink-950 p-2 text-[0.7rem] whitespace-pre-wrap text-ink-200">{result}</pre>
+            <pre className="scroll-y max-h-72 rounded-lg bg-ink-950 p-2 text-[0.8rem] whitespace-pre-wrap text-ink-200">{result}</pre>
           ) : (
-            <div className="text-[0.7rem] text-ink-400">no output yet</div>
+            <div className="text-[0.8rem] text-ink-400">no output yet</div>
           )}
         </div>
       ) : null}
@@ -218,7 +220,7 @@ export function ToolCard({ block }: { block: ChatToolBlock }) {
 function Message({ message }: { message: ChatMsg }) {
   if (message.role === "note") {
     return (
-      <div className="my-2 text-center text-[0.7rem] text-ink-400">
+      <div className="my-2 text-center text-[0.8rem] text-ink-400">
         {message.blocks.map((block) => (block.kind === "text" ? block.text : "")).join(" ")}
       </div>
     );
@@ -231,7 +233,7 @@ function Message({ message }: { message: ChatMsg }) {
           if (block.kind === "tool") return <ToolCard key={`${message.id}-${index}`} block={block} />;
           if (block.kind === "thinking") {
             return (
-              <details key={`${message.id}-${index}`} className="my-1 text-[0.75rem] text-ink-400">
+              <details key={`${message.id}-${index}`} className="my-1 text-[0.85rem] text-ink-400">
                 <summary className="cursor-pointer select-none">thinking</summary>
                 <div className="prose-chat mt-1 border-l-2 border-ink-800 pl-2 italic">{block.text}</div>
               </details>
@@ -239,7 +241,7 @@ function Message({ message }: { message: ChatMsg }) {
           }
           if (block.kind === "error") {
             return (
-              <div key={`${message.id}-${index}`} className="my-1 rounded-lg border border-[var(--color-blocked)]/40 px-2 py-1 text-[0.8rem] text-[var(--color-blocked)]">
+              <div key={`${message.id}-${index}`} className="my-1 rounded-lg border border-[var(--color-blocked)]/40 px-2 py-1 text-[0.9rem] text-[var(--color-blocked)]">
                 {block.text}
               </div>
             );
@@ -251,7 +253,43 @@ function Message({ message }: { message: ChatMsg }) {
   );
 }
 
-export function MessageList({ session }: { session: ChatSession }) {
+/** A turn is one prompt plus everything the agent wrote before the next one. */
+function turnsOf(messages: ChatMsg[]): ChatMsg[][] {
+  const turns: ChatMsg[][] = [];
+  for (const message of messages) {
+    // A trimmed transcript can start mid-turn: those messages form no turn of their own.
+    if (message.role === "user" || !turns.length) turns.push([]);
+    turns[turns.length - 1].push(message);
+  }
+  return turns;
+}
+
+/** When the prompt that started the turn was written, when the transcript still holds it. */
+function turnStart(turn: ChatMsg[]): number | null {
+  const [first] = turn;
+  const ms = first.role === "user" ? Date.parse(first.at ?? "") : NaN;
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** Milliseconds from the prompt to the last thing the agent said in that turn. */
+function turnSpan(turn: ChatMsg[]): number | null {
+  const from = Date.parse(turn[0].at ?? "");
+  const to = Date.parse(turn[turn.length - 1].at ?? "");
+  return Number.isFinite(from) && Number.isFinite(to) && to > from ? to - from : null;
+}
+
+/** Counts up while the agent is still on the turn; the transcript only has finished records. */
+function TurnTimer({ since }: { since: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return <span>{formatDuration(Math.max(0, now - since))}</span>;
+}
+
+export function MessageList({ session, running = false }: { session: ChatSession; running?: boolean }) {
+  const turns = useMemo(() => turnsOf(session.messages), [session.messages]);
   if (!session.messages.length) {
     return (
       <div className="p-6 text-center text-sm text-ink-400">
@@ -265,10 +303,28 @@ export function MessageList({ session }: { session: ChatSession }) {
   }
   return (
     <div className="px-3 pb-2">
-      {session.truncated ? <div className="py-2 text-center text-[0.7rem] text-ink-400">earlier messages trimmed</div> : null}
-      {session.messages.map((message) => (
-        <Message key={message.id} message={message} />
-      ))}
+      {session.truncated ? <div className="py-2 text-center text-[0.8rem] text-ink-400">earlier messages trimmed</div> : null}
+      {turns.map((turn, index) => {
+        const start = turnStart(turn);
+        const live = running && index === turns.length - 1 && start !== null;
+        const span = live || start === null ? null : turnSpan(turn);
+        return (
+          <Fragment key={turn[0].id}>
+            {turn.map((message) => (
+              <Message key={message.id} message={message} />
+            ))}
+            {live ? (
+              <div className="pb-1 pl-1 text-[0.75rem] text-[var(--color-working)]">
+                <span className="spinner-dot">●</span> <TurnTimer since={start} />
+              </div>
+            ) : span !== null ? (
+              <div className="pb-1 pl-1 text-[0.75rem] text-ink-400" title="time this turn took">
+                {formatDuration(span)}
+              </div>
+            ) : null}
+          </Fragment>
+        );
+      })}
     </div>
   );
 }
@@ -445,7 +501,7 @@ export function QuestionCard({
 
   return (
     <div className="border-t border-[var(--color-blocked)]/30 bg-[var(--color-blocked)]/5 px-3 py-3">
-      <div className="mb-1 flex items-center gap-2 text-[0.7rem] font-semibold tracking-wide text-[var(--color-blocked)] uppercase">
+      <div className="mb-1 flex items-center gap-2 text-[0.8rem] font-semibold tracking-wide text-[var(--color-blocked)] uppercase">
         <span className="spinner-dot">●</span> agent is asking
         {pending.questions.length > 1 ? (
           <span className="text-ink-400 normal-case">
@@ -453,7 +509,7 @@ export function QuestionCard({
           </span>
         ) : null}
       </div>
-      <div className="prose-chat text-[0.9rem] text-white">{question.question}</div>
+      <div className="prose-chat text-base text-white">{question.question}</div>
 
       <div className={`mt-2 space-y-1.5 ${reviewing ? "hidden" : ""}`}>
         {question.multi
@@ -462,7 +518,7 @@ export function QuestionCard({
                 key={option.label}
                 type="button"
                 onClick={() => void toggle(index)}
-                className={`tap w-full rounded-xl border px-3 py-2 text-left text-sm ${
+                className={`tap w-full rounded-xl border px-3 py-2 text-left text-base ${
                   toggled.includes(index) ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15" : "border-ink-700 bg-ink-900"
                 }`}
               >
@@ -471,11 +527,11 @@ export function QuestionCard({
                     {toggled.includes(index) ? "◼" : "◻"}
                   </span>
                   <span className="min-w-0 flex-1">{option.label}</span>
-                  <span className={`font-mono text-[0.6rem] ${cursor === index ? "text-[var(--color-accent)]" : "text-ink-400"}`}>
+                  <span className={`font-mono text-[0.7rem] ${cursor === index ? "text-[var(--color-accent)]" : "text-ink-400"}`}>
                     {describe(keysTo(index, ["␣"]))}
                   </span>
                 </div>
-                {option.description ? <div className="mt-0.5 pl-5 text-[0.75rem] text-ink-400">{option.description}</div> : null}
+                {option.description ? <div className="mt-0.5 pl-5 text-[0.85rem] text-ink-400">{option.description}</div> : null}
               </button>
             ))
           : question.options.map((option, index) => (
@@ -483,13 +539,13 @@ export function QuestionCard({
                 key={option.label}
                 type="button"
                 onClick={() => void pick(index)}
-                className="tap w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-left text-sm active:bg-ink-800"
+                className="tap w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-left text-base active:bg-ink-800"
               >
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1">{option.label}</span>
-                  <span className="font-mono text-[0.6rem] text-ink-400">{describe(keysTo(index, ["⏎"]))}</span>
+                  <span className="font-mono text-[0.7rem] text-ink-400">{describe(keysTo(index, ["⏎"]))}</span>
                 </div>
-                {option.description ? <div className="mt-0.5 text-[0.75rem] text-ink-400">{option.description}</div> : null}
+                {option.description ? <div className="mt-0.5 text-[0.85rem] text-ink-400">{option.description}</div> : null}
               </button>
             ))}
       </div>
@@ -523,24 +579,143 @@ export function QuestionCard({
           }}
           rows={1}
           placeholder="Or type an answer…"
-          className="scroll-y max-h-32 min-h-11 flex-1 resize-none rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm"
+          className="field scroll-y max-h-32 min-h-11 flex-1 resize-none"
         />
         <Button onClick={() => void sendCustom()} disabled={!custom.trim()}>
           Send
         </Button>
       </div>
 
-      {sent ? <div className="mt-2 text-[0.7rem] text-ink-400">{sent}</div> : null}
-      {error ? <div className="mt-2 text-[0.7rem] text-[var(--color-blocked)]">{error}</div> : null}
+      {sent ? <div className="mt-2 text-[0.8rem] text-ink-400">{sent}</div> : null}
+      {error ? <div className="mt-2 text-[0.8rem] text-[var(--color-blocked)]">{error}</div> : null}
       {screen ? (
-        <details className="mt-2 text-[0.7rem] text-ink-400" open>
+        <details className="mt-2 text-[0.8rem] text-ink-400" open>
           <summary className="cursor-pointer select-none">terminal dialog</summary>
-          <pre ref={preview} className="scroll-y mt-1 max-h-40 rounded-lg bg-ink-950 p-2 text-[0.65rem] whitespace-pre text-ink-200">
+          <pre ref={preview} className="scroll-y mt-1 max-h-40 rounded-lg bg-ink-950 p-2 text-[0.75rem] whitespace-pre text-ink-200">
             {screen}
           </pre>
         </details>
       ) : null}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------ model switch -- */
+
+/**
+ * Model chip for a running agent. The agents that take a `--model` flag also take
+ * `/model <id>` in their own TUI, so the switch is one prompt away; the agent writes the
+ * change into its transcript, which is why the label follows the session file.
+ */
+export function ModelChip({
+  paneId,
+  session,
+  agent,
+  model,
+}: {
+  paneId: string;
+  session?: string;
+  agent: string | null | undefined;
+  model: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+  const [note, setNote] = useState<string | null>(null);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setError(null);
+    setSent(null);
+    fetch(`/api/models?kind=${encodeURIComponent(agent ?? "")}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload: { supported?: boolean; models?: string[]; note?: string }) => {
+        setModels(payload.models ?? []);
+        setNote(payload.note ?? null);
+      })
+      .catch(() => setModels([]));
+  }, [open, agent]);
+
+  if (!supportsModel(agent ?? "")) return null;
+
+  const switchTo = async (target: string) => {
+    const command = modelCommand(agent, target);
+    if (!command) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/prompt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pane: paneId, text: command, session: session ?? activeSession() }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok || payload.error) throw new Error(payload.error ?? `HTTP ${response.status}`);
+      setSent(command);
+      setTyped("");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <IconButton label={`Model: ${model ?? "unknown"} — tap to switch`} tone="accent" onClick={() => setOpen(true)}>
+        <span className="max-w-28 truncate">{model?.split("/").pop() ?? "model"}</span>
+      </IconButton>
+
+      <Sheet open={open} onClose={() => setOpen(false)} title="Model">
+        <div className="space-y-3">
+          <div className="rounded-xl border border-ink-800 px-3">
+            <Row label="in use" value={model ?? "not reported"} />
+          </div>
+          {/* Capped so the typed-id field and the actions stay on screen, however long the list is. */}
+          <div className="scroll-y max-h-[40dvh] space-y-2">
+            {models.map((entry) => (
+              <Button
+                key={entry}
+                full
+                size="sm"
+                tone={entry.split("/").pop() === model?.split("/").pop() ? "accent" : "default"}
+                disabled={busy}
+                onClick={() => void switchTo(entry)}
+              >
+                <span className="min-w-0 flex-1 truncate text-left">{entry}</span>
+              </Button>
+            ))}
+          </div>
+          {models.length === 0 ? (
+            <p className="text-[0.75rem] text-ink-400">
+              {note ?? "no models found on this machine — type an id below"}
+            </p>
+          ) : null}
+          <div className="flex gap-2">
+            <input
+              value={typed}
+              onChange={(event) => setTyped(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && typed.trim() && !busy) void switchTo(typed.trim());
+              }}
+              placeholder="other model id"
+              className="field min-w-0 flex-1"
+            />
+            <Button tone="primary" disabled={busy || !typed.trim()} onClick={() => void switchTo(typed.trim())}>
+              {busy ? "…" : "Switch"}
+            </Button>
+          </div>
+          {sent ? <p className="text-[0.75rem] text-[var(--color-done)]">sent {sent} — the agent switches on its next turn</p> : null}
+          {error ? <p className="text-[0.75rem] text-[var(--color-blocked)]">{error}</p> : null}
+          <p className="text-[0.7rem] text-ink-400">
+            Sent as the agent's own <code>/model</code> command, so the conversation continues in the same session.
+          </p>
+        </div>
+      </Sheet>
+    </>
   );
 }
 
@@ -654,17 +829,17 @@ export function Composer({
 
   return (
     <div className="pad-bottom border-t border-ink-850 bg-ink-950 px-3 pt-2">
-      {error ? <div className="pb-1 text-[0.7rem] text-[var(--color-blocked)]">{error}</div> : null}
+      {error ? <div className="pb-1 text-[0.8rem] text-[var(--color-blocked)]">{error}</div> : null}
       <div className="flex items-end gap-2">
-        <button
-          type="button"
-          onClick={() => void key(hasAgent ? ["esc"] : ["ctrl+c"])}
+        <IconButton
+          label={running ? "Stop this turn (Esc)" : "Nothing to stop — the agent is not working"}
+          tone="danger"
+          size="md"
           disabled={!running}
-          title={running ? "Stop this turn (Esc)" : "Nothing to stop — the agent is not working"}
-          className="tap inline-flex shrink-0 items-center gap-1 rounded-2xl border border-[var(--color-blocked)]/40 px-3 text-sm text-[var(--color-blocked)] disabled:border-ink-800 disabled:text-ink-600"
+          onClick={() => void key(hasAgent ? ["esc"] : ["ctrl+c"])}
         >
           ■
-        </button>
+        </IconButton>
         <textarea
           ref={draftRef}
           value={draft}
@@ -681,45 +856,32 @@ export function Composer({
           }}
           rows={1}
           placeholder={hasAgent ? placeholder : "Run in this shell…"}
-          className="scroll-y max-h-40 min-h-11 flex-1 resize-none rounded-2xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm"
+          className="field scroll-y max-h-40 min-h-11 flex-1 resize-none"
         />
-        <button
-          type="button"
-          onClick={() => void send()}
-          disabled={busy || !draft.trim()}
-          className="tap inline-flex items-center rounded-2xl bg-[var(--color-accent)] px-4 text-sm font-semibold text-ink-950 disabled:opacity-40"
-        >
+        <Button tone="primary" disabled={busy || !draft.trim()} onClick={() => void send()}>
           {busy ? "…" : "Send"}
-        </button>
+        </Button>
       </div>
       {sent || error ? (
-        <div className={`pt-1 text-[0.65rem] ${error ? "text-[var(--color-blocked)]" : "text-ink-400"}`}>{error ?? sent}</div>
+        <div className={`pt-1 text-[0.75rem] ${error ? "text-[var(--color-blocked)]" : "text-ink-400"}`}>{error ?? sent}</div>
       ) : null}
-      <div className={`mt-2 gap-2 overflow-x-auto no-scrollbar pb-1 ${showKeys ? "flex" : "hidden"}`}>
-        <button type="button" onClick={() => void key(["esc"])} className="shrink-0 rounded-lg border border-ink-700 px-2 py-1 text-[0.7rem] text-ink-400">
-          esc
-        </button>
-        <button type="button" onClick={() => void key(["ctrl+c"])} className="shrink-0 rounded-lg border border-ink-700 px-2 py-1 text-[0.7rem] text-ink-400">
-          ctrl+c
-        </button>
-        <button type="button" onClick={() => void key(["enter"])} className="shrink-0 rounded-lg border border-ink-700 px-2 py-1 text-[0.7rem] text-ink-400">
-          enter
-        </button>
-        <button type="button" onClick={() => void key(["up"])} className="shrink-0 rounded-lg border border-ink-700 px-2 py-1 text-[0.7rem] text-ink-400">
-          ↑
-        </button>
-        <button type="button" onClick={() => void key(["down"])} className="shrink-0 rounded-lg border border-ink-700 px-2 py-1 text-[0.7rem] text-ink-400">
-          ↓
-        </button>
-        <button type="button" onClick={() => void key(["left"])} className="shrink-0 rounded-lg border border-ink-700 px-2 py-1 text-[0.7rem] text-ink-400">
-          ←
-        </button>
-        <button type="button" onClick={() => void key(["right"])} className="shrink-0 rounded-lg border border-ink-700 px-2 py-1 text-[0.7rem] text-ink-400">
-          →
-        </button>
-        <button type="button" onClick={() => void key(["tab"])} className="shrink-0 rounded-lg border border-ink-700 px-2 py-1 text-[0.7rem] text-ink-400">
-          tab
-        </button>
+      <div className={`mt-1 gap-1.5 overflow-x-auto no-scrollbar pb-1 ${showKeys ? "flex" : "hidden"}`}>
+        {(
+          [
+            ["esc", "esc"],
+            ["ctrl+c", "ctrl+c"],
+            ["enter", "enter"],
+            ["up", "↑"],
+            ["down", "↓"],
+            ["left", "←"],
+            ["right", "→"],
+            ["tab", "tab"],
+          ] as const
+        ).map(([name, label]) => (
+          <Button key={name} size="sm" onClick={() => void key([name])}>
+            {label}
+          </Button>
+        ))}
       </div>
     </div>
   );

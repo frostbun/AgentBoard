@@ -7,7 +7,7 @@ import { Button, Screen, TopBar } from "@/components/bits";
 import { SessionChip } from "@/components/session-chip";
 import { activeSession, callAction, shortCwd, useBoard } from "@/components/use-board";
 import { asRecord, asString } from "@/lib/json";
-import { modelArgs } from "@/lib/herdr/names";
+import { agentName, freeAgentName, modelArgs } from "@/lib/herdr/names";
 
 type KindInfo = { kind: string; binary: string; path: string | null; installed: boolean };
 
@@ -73,6 +73,9 @@ export default function NewAgentPage() {
   const [workspaceId, setWorkspaceId] = useState("");
   const [kind, setKind] = useState("omp");
   const [kinds, setKinds] = useState<KindInfo[]>([]);
+  const [name, setName] = useState("");
+  /** Until the field is touched by hand it follows the kind and the names already in use. */
+  const [nameEdited, setNameEdited] = useState(false);
   const [cwd, setCwd] = useState("");
   const [home, setHome] = useState("");
   const [args, setArgs] = useState("");
@@ -130,6 +133,10 @@ export default function NewAgentPage() {
   }, [workspaces, workspaceId, state?.focused.workspace_id]);
 
   const workspace = workspaces.find((entry) => entry.workspace_id === workspaceId) ?? null;
+  const askedName = useMemo(() => freeAgentName(kind, (state?.agents ?? []).map((agent) => agent.name)), [kind, state?.agents]);
+  useEffect(() => {
+    if (!nameEdited) setName(askedName);
+  }, [askedName, nameEdited]);
   const knownCwds = useMemo(() => {
     const set = new Set<string>();
     for (const pane of state?.panes ?? []) {
@@ -190,7 +197,7 @@ export default function NewAgentPage() {
       await callAction(
         "agent.start",
         {
-          name: kind,
+          name: agentName(name.trim(), kind),
           kind,
           pane_id: paneId,
           ...(agentArgs().length ? { args: agentArgs() } : {}),
@@ -215,7 +222,12 @@ export default function NewAgentPage() {
 
       router.push(`/a/${encodeURIComponent(paneId)}?session=${encodeURIComponent(spawnSession)}`);
     } catch (err) {
-      setError((err as Error).message);
+      const message = (err as Error).message;
+      setError(
+        /agent_name_taken/i.test(message)
+          ? `the name “${agentName(name.trim(), kind)}” is already used in ${spawnSession || "this session"} — edit the name and start again`
+          : message,
+      );
     } finally {
       setBusy(null);
     }
@@ -247,18 +259,16 @@ export default function NewAgentPage() {
           <h2 className="mb-2 text-[0.7rem] font-semibold uppercase tracking-wider text-ink-400">Agent</h2>
           <div className="flex flex-wrap gap-2">
             {(kinds.length ? kinds : [{ kind: "omp", binary: "omp", path: null, installed: true }]).map((entry) => (
-              <button
+              <Button
                 key={entry.kind}
-                type="button"
-                onClick={() => entry.installed && setKind(entry.kind)}
+                size="sm"
+                tone={entry.kind === kind ? "accent" : "default"}
                 disabled={!entry.installed}
-                className={`rounded-xl border px-3 py-2 text-sm ${
-                  entry.kind === kind ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-white" : "border-ink-700 text-ink-400"
-                } ${entry.installed ? "" : "opacity-40"}`}
-                title={entry.installed ? entry.path ?? "" : `${entry.binary} not on PATH here`}
+                title={entry.installed ? entry.path ?? entry.kind : `${entry.binary} not on PATH here`}
+                onClick={() => entry.installed && setKind(entry.kind)}
               >
                 {entry.kind}
-              </button>
+              </Button>
             ))}
           </div>
           {selected && !selected.installed ? (
@@ -277,7 +287,7 @@ export default function NewAgentPage() {
               setWorkspaceId(event.target.value);
               setCwd("");
             }}
-            className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm"
+            className="field"
           >
             {workspaces.map((entry) => (
               <option key={entry.workspace_id} value={entry.workspace_id}>
@@ -290,7 +300,7 @@ export default function NewAgentPage() {
             value={cwd}
             onChange={(event) => setCwd(event.target.value)}
             placeholder="working directory (defaults to the workspace's)"
-            className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm"
+            className="field"
           />
           <datalist id="known-cwds">
             {knownCwds.map((dir) => (
@@ -300,14 +310,9 @@ export default function NewAgentPage() {
           {knownCwds.length ? (
             <div className="flex flex-wrap gap-2">
               {knownCwds.slice(0, 4).map((dir) => (
-                <button
-                  key={dir}
-                  type="button"
-                  onClick={() => setCwd(dir)}
-                  className="rounded-lg border border-ink-800 px-2 py-1 text-[0.7rem] text-ink-400"
-                >
+                <Button key={dir} size="sm" onClick={() => setCwd(dir)}>
                   {shortCwd(dir)}
-                </button>
+                </Button>
               ))}
             </div>
           ) : null}
@@ -315,11 +320,24 @@ export default function NewAgentPage() {
 
         <section className="space-y-2">
           <h2 className="text-[0.7rem] font-semibold uppercase tracking-wider text-ink-400">Details</h2>
+          <input
+            value={name}
+            onChange={(event) => {
+              setName(event.target.value);
+              setNameEdited(true);
+            }}
+            placeholder="agent name, e.g. api-refactor"
+            className="field"
+          />
+          <p className="text-[0.65rem] text-ink-400">
+            herdr keeps agent names unique per session — the default follows the kind and adds <b>-2</b>, <b>-3</b>… when
+            taken.
+          </p>
           <select
             value={model}
             onChange={(event) => setModel(event.target.value)}
             disabled={!models.length}
-            className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm disabled:opacity-50"
+            className="field"
           >
             <option value="">model: agent default</option>
             {models.map((entry) => (
@@ -333,14 +351,14 @@ export default function NewAgentPage() {
             value={args}
             onChange={(event) => setArgs(event.target.value)}
             placeholder="extra args, e.g. --model opus"
-            className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm"
+            className="field"
           />
           <textarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             rows={3}
             placeholder="first prompt (optional)"
-            className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm"
+            className="field"
           />
         </section>
 

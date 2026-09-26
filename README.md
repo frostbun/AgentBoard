@@ -56,19 +56,30 @@ pause while the tab is hidden.
 | `+ New session` at the bottom of the fleet: starts `herdr --session NAME server` (creates it if new), lists sessions that exist but are not running so they can be started again | `POST /api/sessions` |
 | Chat view: native transcript (not a terminal dump), tool calls, thinking, errors | `~/.omp/agent/sessions`, `~/.claude/projects`, `~/.local/share/opencode/opencode.db` |
 | Usage bar per agent: tokens in/out/reasoning, cache read/write and hit rate, cost, provider time, wall clock, context used against the model's window | each agent's own session file |
-| Transcript discovery when herdr has no session reference: newest session file for the pane's cwd (labelled "inferred" in the UI) | `agent_session` ref → cwd scan |
+| Turn times in the chat: how long each turn took, and a live counter while the agent is still on one | the transcript's own message timestamps |
+| Transcripts come from herdr's own `agent_session` reference and nothing else: a pane without one reports the session missing (the Terminal tab still works), never a guess from the pane's directory | `session.snapshot` → `agent_session` → that agent's own session file/db |
 | Pending-question cards with option buttons; answers sent as keystrokes | transcript tool calls + `pane.send_keys` / `pane.send_text` |
 | Spawn: existing workspace, new workspace, or isolated git worktree; optional first prompt | `pane.split`, `workspace.create`, `worktree.create`, `agent.start` |
 | Prompt & steer: composer, Esc/Ctrl-C/arrows, interrupt, rename, zoom, focus, close pane | `agent.prompt`, `agent.send_keys`, `pane.*` |
 | Two-way input sync: typing here writes to the agent's prompt as you type, and typing in herdr first appears here (the terminal is the source of truth) | `pane.send_text`/`send_keys`, `pane.read` + input-line parser |
 | Attention inbox: blocked/done agents, browser notification + sound, muted toggle. Review focuses the pane on the way into the chat, so herdr's "finished, unseen" state clears | `agent_status` rollups, `pane.focus` |
 | Notification panel: permission state, "Send test notification", mute; per-device via localStorage | Web Notifications API |
-| Session resume: copy `omp --resume <id>` / `claude --resume <id>` / `opencode --session <id>` | `agent_session` refs |
+| Session resume: the ↻ on a workspace lists every agent session there and reopens the one you pick in a new pane; the chat copies `omp --resume <id>` / `claude --resume <id>` / `opencode --session <id>` | `agent_session` refs (or the transcript's own id), `pane.split` + `agent.start` |
+| Model switch inside a chat: the chip next to the Chat/Terminal tabs lists the models this machine has (and takes a typed id), then sends the agent's own `/model <id>` so the same session continues (omp, pi, claude) | `/api/models`, `agent.prompt` |
 
 Everything else herdr exposes (`layout.*`, `tab.*`, `worktree.*`, `notification.show`, …) is reachable through
 `POST /api/action`, which refuses any method outside an explicit allowlist.
 
 ## Design notes
+
+- **One size knob, three button sizes.** Every length in the UI is rem-based, so the root `font-size` in
+  `globals.css` scales type, padding and tap targets together; `Button`/`IconButton`/`iconClass` (used by the `+`
+  links too) are the only button implementations, in exactly three sizes (`xs` for the glyphs that ride along a
+  row, `sm` for compact text actions, `md` for standalone ones) and four tones. A tone owns its background — the
+  shared base must not set one, or two equal-specificity `bg-*` utilities decide the colour by stylesheet order.
+- **Form-control defaults live in `@layer base`.** `textarea, input, select, button { font: inherit }` has to be
+  layered: an unlayered rule beats every layered utility whatever the specificity, so `text-sm`, `font-semibold`
+  and `text-ink-950` on a button silently did nothing while that rule sat outside a layer.
 
 - **One herdr request per connection.** herdr answers a request and closes that connection (the shipped CLI does
   one request per process). Pooling a request connection makes it flap, so `lib/herdr/rpc.ts` opens a fresh
@@ -85,7 +96,9 @@ Everything else herdr exposes (`layout.*`, `tab.*`, `worktree.*`, `notification.
   submits with `enter`. The button labels show exactly what gets sent.
 - **Input sync is bidirectional and always on.** The board diffs what you type and sends only the delta
   (backspaces for deletions); a 1.3 s poll parses the agent's input line out of the rendered screen
-  (`lib/herdr/input-line.ts`, covered by `bun run check`) and adopts it when herdr owns the typing. While the
+  (`lib/herdr/input-line.ts`, covered by `bun run check`) and adopts it when herdr owns the typing. Only the
+  bottom-most box on screen counts as the prompt: omp's welcome panel is box-shaped too, and walking up from an
+  empty prompt used to serve its tips as a draft (which the mirror then typed into the agent). While the
   composer has unsent local edits it never fights you, and it pauses entirely when a question dialog owns input.
   A newline you type is sent as the agent's own newline chord (`shift+enter`) rather than Enter, so a multiline
   draft does not submit itself; shells get the raw newline. A draft you have typed here is never overwritten by
@@ -93,9 +106,9 @@ Everything else herdr exposes (`layout.*`, `tab.*`, `worktree.*`, `notification.
   box, the polled text is ignored.
 - **Long transcripts do not re-render for nothing.** A poll whose payload says nothing new keeps the previous
   parsed object, so React bails out; an idle agent's chat view produces zero DOM mutations between changes.
-- **The fleet has no session filter.** Every session is always listed; a chat link carries `?session=` and shows a
-  read-only chip, and the spawn form has its own page-local session picker. There is no bottom navigation — the
-  per-workspace `+` is the way to start an agent, and every page has a back link.
+- **The fleet has no session filter.** Every session is always listed; a chat link carries `?session=` (named in
+  the chat's pane-controls sheet), and the spawn form has its own page-local session picker. There is no bottom
+  navigation — the per-workspace `+` is the way to start an agent, and every page has a back link.
 - **Panes resolve across sessions.** Read routes (`transcript`, `pane-text`, `input-line`) look the pane up in the
   requested session first and then in every other live session, returning the session that actually owns it — a
   link with a missing or stale `?session=` self-heals instead of 404ing, and the page adopts the answer.
@@ -104,10 +117,21 @@ A freshly started agent has no transcript yet: herdr names the file, the agent w
 chat view says "No messages yet — this agent has not taken its first turn" and the tail watcher attaches when the
 file appears, so the first message shows up without a reload.
 
-`agent_session` may be missing entirely (an uninstalled or outdated herdr integration for that agent). The board
-then resolves the transcript from the pane's working directory — newest `*.jsonl` under
-`~/.claude/projects/<slug>` or `~/.omp/agent/sessions/<slug>` — and marks the view "transcript inferred from this
-pane's working directory". Answers are always sent as keystrokes, so the question card works either way.
+`agent_session` may be missing entirely, and the board never fills the gap by guessing. herdr learns a session
+only from the agent's own lifecycle integration, and that integration reports it **once, at startup**
+(`pane.report_agent_session`); an agent started before its integration was installed therefore has no session
+until it is restarted. Such a pane says exactly that — "herdr has no session reference for this pane: the agent's
+integration reports one when it starts, so restart the agent and check `herdr integration status`" — and the
+Terminal tab still shows the pane. Pick the session from disk instead? That was the old behaviour (newest
+`*.jsonl` for the pane's cwd) and it was removed: with two agents in one project it can only show one of them,
+and a wrong transcript is worse than a named absence. Answers are always sent as keystrokes, so the question card
+works either way.
+
+Resume reads the same reference and nothing else — hence the ↻ sheet lists each agent's own session id, marks the
+panes herdr never got one for, and refuses to resume them. Only the session **id** is used from the reference: omp
+names files `<timestamp>_<id>.jsonl` and Claude Code names them `<id>.jsonl`, while every resume flag takes the id
+(`claude --resume <path>` is not a session), so a path reference is reduced to its last underscore-suffixed
+segment.
 
 ## Integrations (why `agent.prompt` may fall back)
 
@@ -137,6 +161,7 @@ lib/herdr/stream.ts      long-lived events.subscribe stream with reconnect
 lib/herdr/board.ts       in-memory mirror: snapshot polling, attention, SSE fanout
 lib/chat/                omp / claude / opencode transcript readers → ChatSession
 lib/json.ts              pure narrowing helpers shared by server and client
+scripts/check-*.ts       `bun run check`: input-line parser, models.yml subset
 .docs/herdr-api-reference.md   generated from `herdr api schema` (0.9.1)
 ```
 

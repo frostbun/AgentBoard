@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Row, Screen, Sheet, StatusDot, TopBar } from "@/components/bits";
+import { Button, IconButton, iconClass, Row, Screen, Sheet, StatusDot, TopBar } from "@/components/bits";
 import {
   callAction,
   notificationHint,
@@ -19,7 +19,7 @@ import {
   type SessionSnapshot,
 } from "@/components/use-board";
 import type { SessionInfo } from "@/components/session-chip";
-import { agentName } from "@/lib/herdr/names";
+import { agentName, sessionId } from "@/lib/herdr/names";
 import { closeWarning, paneTitle, type AttentionItem, type BoardPane, type WorkspaceInfo } from "@/lib/herdr/types";
 
 type SessionAttention = AttentionItem & { session: string };
@@ -116,22 +116,12 @@ function AgentRow({
         </div>
         {activity ? <span className="shrink-0 text-[0.65rem] text-ink-400">{timeAgo(activity)}</span> : null}
       </Link>
-      <button
-        type="button"
-        onClick={() => onRename(pane, session.id)}
-        className="tap shrink-0 rounded-lg border border-ink-800 px-2 text-[0.7rem] text-ink-400"
-        title="Rename this agent"
-      >
+      <IconButton label="Rename this agent" onClick={() => onRename(pane, session.id)}>
         ✎
-      </button>
-      <button
-        type="button"
-        onClick={() => onClose(pane, session.id)}
-        className="tap shrink-0 rounded-lg border border-ink-800 px-2 text-[0.7rem] text-ink-400"
-        title="Close this agent"
-      >
+      </IconButton>
+      <IconButton label="Close this agent" onClick={() => onClose(pane, session.id)}>
         ✕
-      </button>
+      </IconButton>
     </div>
   );
 }
@@ -174,25 +164,15 @@ function WorkspaceCard({
         </span>
         <span className="ml-auto flex items-center gap-2">
           <StatusDot status={workspace.agent_status} />
-          <button
-            type="button"
-            onClick={() => onCloseWorkspace(workspace, session.id)}
-            className="tap inline-flex items-center rounded-lg border border-ink-800 px-2 text-[0.75rem] text-ink-400"
-            title={`Close ${workspace.label}`}
-          >
+          <IconButton label={`Close ${workspace.label}`} onClick={() => onCloseWorkspace(workspace, session.id)}>
             ✕
-          </button>
-          <button
-            type="button"
-            onClick={() => onResume(workspace, session.id)}
-            className="tap inline-flex items-center rounded-lg border border-ink-700 px-2 text-[0.75rem] text-ink-200"
-            title={`Resume an agent in ${workspace.label}`}
-          >
+          </IconButton>
+          <IconButton label={`Resume an agent in ${workspace.label}`} onClick={() => onResume(workspace, session.id)}>
             ↻
-          </button>
+          </IconButton>
           <Link
             href={`/new?session=${encodeURIComponent(session.id)}&workspace=${encodeURIComponent(workspace.workspace_id)}`}
-            className="tap inline-flex items-center rounded-lg border border-ink-700 px-2 text-[0.75rem] text-ink-200"
+            className={iconClass()}
             title={`New agent in ${workspace.label}`}
           >
             +
@@ -240,7 +220,13 @@ export default function FleetPage() {
   const [workspaceCwd, setWorkspaceCwd] = useState("");
   const [home, setHome] = useState("");
   const [busy, setBusy] = useState(false);
-  const [resumeTarget, setResumeTarget] = useState<{ workspace: WorkspaceInfo; session: string; kind: string | null } | null>(null);
+  const [resumeTarget, setResumeTarget] = useState<{
+    workspace: WorkspaceInfo;
+    session: string;
+    /** Every agent pane in the workspace, newest first — each one is a resumable session. */
+    candidates: { pane: BoardPane; title: string | null }[];
+    paneId: string;
+  } | null>(null);
   const [resumeModel, setResumeModel] = useState("");
   const [resumeModels, setResumeModels] = useState<string[]>([]);
   const [notifyOpen, setNotifyOpen] = useState(false);
@@ -350,34 +336,55 @@ export default function FleetPage() {
     }
   };
 
-  /** Opens the resume sheet: which agent to continue is herdr's newest session in that workspace. */
+  const loadResumeModels = (kind: string | null | undefined) => {
+    setResumeModels([]);
+    if (!kind) return;
+    fetch(`/api/models?kind=${encodeURIComponent(kind)}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload: { models?: string[] }) => setResumeModels(payload.models ?? []))
+      .catch(() => setResumeModels([]));
+  };
+
+  /** Opens the resume sheet: every agent pane in the workspace is one resumable session. */
   const openResume = (workspace: WorkspaceInfo, sessionId: string) => {
     setError(null);
     setResumeModel("");
     const state = sessions.find((entry) => entry.id === sessionId)?.state;
-    const newest = (state?.panes ?? [])
-      .filter((pane) => pane.workspace_id === workspace.workspace_id && pane.agent_session)
-      .sort((a, b) => (b.revision ?? 0) - (a.revision ?? 0))[0];
-    const kind = newest?.agent ?? null;
-    setResumeTarget({ workspace, session: sessionId, kind });
-    setResumeModels([]);
-    if (kind) {
-      fetch(`/api/models?kind=${encodeURIComponent(kind)}`, { cache: "no-store" })
-        .then((response) => response.json())
-        .then((payload: { models?: string[] }) => setResumeModels(payload.models ?? []))
-        .catch(() => setResumeModels([]));
-    }
+    const panes = (state?.panes ?? [])
+      .filter((pane) => pane.workspace_id === workspace.workspace_id && pane.agent)
+      .sort((a, b) => (b.revision ?? 0) - (a.revision ?? 0));
+    // Newest first, and the newest pane herdr actually named a session for wins the preselect:
+    // an agent that never reported one cannot be continued.
+    const preset = panes.find((pane) => pane.agent_session) ?? panes[0];
+    setResumeTarget({
+      workspace,
+      session: sessionId,
+      candidates: panes.map((pane) => ({ pane, title: paneTitle(pane) })),
+      paneId: preset?.pane_id ?? "",
+    });
+    loadResumeModels(preset?.agent);
+  };
+
+  const pickResumePane = (pane: BoardPane) => {
+    setResumeTarget((current) => (current ? { ...current, paneId: pane.pane_id } : current));
+    loadResumeModels(pane.agent);
   };
 
   const resumeAgent = async () => {
     const target = resumeTarget;
-    if (!target) return;
+    if (!target?.paneId) return;
+    setBusy(true);
     setError(null);
     try {
       const response = await fetch("/api/resume", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ session: target.session, workspace: target.workspace.workspace_id, model: resumeModel || null }),
+        body: JSON.stringify({
+          session: target.session,
+          workspace: target.workspace.workspace_id,
+          pane: target.paneId,
+          model: resumeModel || null,
+        }),
       });
       const payload = (await response.json()) as { pane_id?: string; error?: string };
       if (!response.ok || payload.error) throw new Error(payload.error ?? `HTTP ${response.status}`);
@@ -385,6 +392,8 @@ export default function FleetPage() {
       if (payload.pane_id) router.push(`/a/${encodeURIComponent(payload.pane_id)}?session=${encodeURIComponent(target.session)}`);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -475,6 +484,7 @@ export default function FleetPage() {
   };
 
   const live = sessions.some((entry) => entry.state.connected);
+  const resumeSelected = resumeTarget?.candidates.find((entry) => entry.pane.pane_id === resumeTarget.paneId) ?? null;
   const visibleAttention = filtered
     ? attention.filter((item) => `${item.agent} ${item.title} ${item.workspace_label}`.toLowerCase().includes(needle.toLowerCase()))
     : attention;
@@ -492,16 +502,13 @@ export default function FleetPage() {
         }
         right={
           <div className="flex items-center gap-2">
-            <button
-              type="button"
+            <IconButton
+              label="Notification settings"
+              tone={muted ? "default" : "accent"}
               onClick={() => setNotifyOpen(true)}
-              className={`rounded-xl border px-2 py-1 text-[0.7rem] ${
-                muted ? "border-ink-700 text-ink-400" : "border-[var(--color-accent)]/50 text-[var(--color-accent)]"
-              }`}
-              title="Notification settings"
             >
               {muted ? "🔇" : permission === "granted" ? "🔔" : "🔕"}
-            </button>
+            </IconButton>
             <span className={`inline-block h-2 w-2 rounded-full ${live ? "bg-[var(--color-done)]" : "bg-[var(--color-blocked)]"}`} />
           </div>
         }
@@ -513,16 +520,12 @@ export default function FleetPage() {
             value={needle}
             onChange={(event) => setNeedle(event.target.value)}
             placeholder="Search agents, titles, workspaces…"
-            className="min-w-0 flex-1 rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm"
+            className="field min-w-0 flex-1"
           />
           {needle ? (
-            <button
-              type="button"
-              onClick={() => setNeedle("")}
-              className="shrink-0 rounded-xl border border-ink-700 px-3 py-2 text-xs text-ink-400"
-            >
+            <Button size="sm" onClick={() => setNeedle("")}>
               clear
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
@@ -558,25 +561,18 @@ export default function FleetPage() {
                   {workspaces.length} workspace{workspaces.length === 1 ? "" : "s"}
                 </span>
                 <span className="ml-auto flex items-center gap-2">
-                  <button
-                    type="button"
+                  <IconButton
+                    label={`Stop or delete ${session.label}`}
                     onClick={() => {
                       setSessionError(null);
                       setRemoveTarget({ name: session.id, label: session.label });
                     }}
-                    className="tap inline-flex items-center rounded-lg border border-ink-700 px-2 text-[0.75rem] text-ink-200"
-                    title={`Stop or delete ${session.label}`}
                   >
                     ⏹
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openWorkspaceSheet(session.id)}
-                    className="tap inline-flex items-center rounded-lg border border-ink-700 px-2 text-[0.75rem] text-ink-200"
-                    title={`New workspace in ${session.label}`}
-                  >
+                  </IconButton>
+                  <IconButton label={`New workspace in ${session.label}`} onClick={() => openWorkspaceSheet(session.id)}>
                     +
-                  </button>
+                  </IconButton>
                 </span>
               </div>
               {workspaces.length === 0 ? (
@@ -599,7 +595,7 @@ export default function FleetPage() {
                       needle={needle}
                       onRename={renameAgent}
                       onClose={closeAgent}
-                      onResume={resumeAgent}
+                      onResume={openResume}
                       onCloseWorkspace={closeWorkspace}
                     />
                   ))
@@ -613,13 +609,9 @@ export default function FleetPage() {
         ) : null}
 
         <div className="px-3 pt-2">
-          <button
-            type="button"
-            onClick={() => setSessionSheet(true)}
-            className="w-full rounded-xl border border-ink-800 px-3 py-2 text-xs text-ink-200"
-          >
+          <Button full onClick={() => setSessionSheet(true)}>
             + New session
-          </button>
+          </Button>
         </div>
       </main>
 
@@ -651,17 +643,39 @@ export default function FleetPage() {
         </div>
       </Sheet>
 
-      <Sheet open={resumeTarget !== null} onClose={() => setResumeTarget(null)} title={`Resume agent in ${resumeTarget?.workspace.label ?? ""}`}>
+      <Sheet open={resumeTarget !== null} onClose={() => setResumeTarget(null)} title={`Resume in ${resumeTarget?.workspace.label ?? ""}`}>
         <div className="space-y-3">
           <p className="text-[0.75rem] text-ink-200">
-            Continues {resumeTarget?.kind ? `${resumeTarget.kind}'s` : "the"} newest session in this workspace, in a new
-            pane next to the original.
+            Pick the session to continue — it reopens in a new pane next to the original.
           </p>
+          <div className="scroll-y max-h-[40dvh] space-y-2">
+            {resumeTarget?.candidates.map(({ pane, title }) => (
+              <Button
+                key={pane.pane_id}
+                full
+                size="sm"
+                tone={pane.pane_id === resumeTarget.paneId ? "accent" : "default"}
+                onClick={() => pickResumePane(pane)}
+              >
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="block truncate">
+                    {pane.display_agent ?? pane.agent} <span className="text-ink-400">{pane.pane_id}</span>
+                  </span>
+                  <span className="block truncate text-[0.75rem] text-ink-400">{title ?? pane.label ?? "untitled"}</span>
+                  <span className="block truncate text-[0.7rem] text-ink-400">
+                    {pane.agent_session
+                      ? `session ${sessionId(pane.agent_session)}`
+                      : "no session reference — herdr never got one from this agent"}
+                  </span>
+                </span>
+              </Button>
+            ))}
+          </div>
           <select
             value={resumeModel}
             onChange={(event) => setResumeModel(event.target.value)}
             disabled={!resumeModels.length}
-            className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm disabled:opacity-50"
+            className="field"
           >
             <option value="">model: as before</option>
             {resumeModels.map((entry) => (
@@ -670,12 +684,20 @@ export default function FleetPage() {
               </option>
             ))}
           </select>
-          {!resumeTarget?.kind ? (
+          {!resumeTarget?.candidates.length ? (
+            <p className="text-[0.75rem] text-[var(--color-blocked)]">No agent in this workspace to continue.</p>
+          ) : null}
+          {resumeSelected && !resumeSelected.pane.agent_session ? (
             <p className="text-[0.75rem] text-[var(--color-blocked)]">
-              No resumable session here — herdr reports one only while the agent is still running.
+              herdr has no session reference for {resumeSelected.pane.pane_id} — this agent never reported one, so there is
+              nothing to continue. Restart the agent (its integration reports a session when it starts) and retry.
             </p>
           ) : null}
-          <Button full tone="primary" disabled={!resumeTarget?.kind || busy} onClick={() => void resumeAgent()}>
+          {resumeSelected?.pane.agent_session && !resumeModels.length ? (
+            <p className="text-[0.75rem] text-ink-400">This agent has no model flag — it starts with its own default.</p>
+          ) : null}
+          {error ? <p className="text-[0.8rem] text-[var(--color-blocked)]">{error}</p> : null}
+          <Button full tone="primary" disabled={!resumeSelected?.pane.agent_session || busy} onClick={() => void resumeAgent()}>
             {busy ? "resuming…" : "Resume"}
           </Button>
         </div>
@@ -687,13 +709,13 @@ export default function FleetPage() {
             value={workspaceLabel}
             onChange={(event) => setWorkspaceLabel(event.target.value)}
             placeholder="name (e.g. api)"
-            className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm"
+            className="field"
           />
           <input
             value={workspaceCwd}
             onChange={(event) => setWorkspaceCwd(event.target.value)}
             placeholder="/path/to/project"
-            className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm"
+            className="field"
           />
           <Button full tone="primary" disabled={busy || !workspaceCwd.trim()} onClick={() => void createWorkspace()}>
             {busy ? "creating…" : "Create workspace"}
@@ -716,7 +738,7 @@ export default function FleetPage() {
                 if (event.key === "Enter" && newSession.trim() && !creating) void startSession(newSession.trim());
               }}
               placeholder="session name"
-              className="min-w-0 flex-1 rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm"
+              className="field min-w-0 flex-1"
             />
             <Button tone="primary" disabled={creating || !newSession.trim()} onClick={() => void startSession(newSession.trim())}>
               {creating ? "starting…" : "Start"}

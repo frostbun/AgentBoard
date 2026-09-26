@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, Sheet } from "./bits";
+import { Button, IconButton, Sheet } from "./bits";
 import { rememberSession } from "./use-board";
 
 export type SessionInfo = { id: string; label: string; socket: string; alive: boolean; current: boolean };
@@ -19,40 +19,25 @@ function useSessions(): { sessions: SessionInfo[]; error: string | null } {
 }
 
 /**
- * herdr session control for pages that act on one session (the spawn form). The fleet shows
- * every session at once, so it renders the read-only label instead.
+ * herdr session picker for the spawn form. The fleet lists every session at once and the chat
+ * names its session in the controls sheet, so both need no chip.
  */
 export function SessionChip({
   value,
   onChange,
-  readOnly = false,
 }: {
   value: string;
   onChange?: (id: string) => void;
-  readOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const { sessions, error } = useSessions();
   const label = sessions.find((entry) => entry.id === value)?.label ?? (value || "…");
 
-  if (readOnly) {
-    return (
-      <span className="shrink-0 rounded-xl border border-ink-800 px-2.5 py-1 text-[0.7rem] text-ink-400" title="herdr session">
-        <span className="text-ink-600">⇄</span> {label}
-      </span>
-    );
-  }
-
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="shrink-0 rounded-xl border border-ink-700 bg-ink-900 px-2.5 py-1 text-[0.7rem] text-ink-200"
-        title="Choose herdr session"
-      >
-        <span className="text-ink-400">⇄</span> {label}
-      </button>
+      <IconButton label={`herdr session: ${label} — tap to choose`} onClick={() => setOpen(true)}>
+        <span className="text-ink-400">⇄</span> <span className="max-w-32 truncate">{label}</span>
+      </IconButton>
 
       <Sheet open={open} onClose={() => setOpen(false)} title="herdr session">
         <div className="space-y-2">

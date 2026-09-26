@@ -22,6 +22,12 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* One knob for "everything is too small": every spacing and type value in the board is
+   rem-based, so the whole UI scales with the root size (a phone at arm's length). */
+html {
+  font-size: 18px;
+}
+
 html,
 body {
   height: 100%;
@@ -34,21 +40,43 @@ body {
   overscroll-behavior-y: none;
 }
 
-textarea,
-input,
-select,
-button {
-  font: inherit;
-  color: inherit;
-}
+/* In `base`, so utilities (`text-sm`, `font-semibold`, `text-ink-950`) can override them:
+   an unlayered rule would beat every layered utility, whatever the specificity. */
+@layer base {
+  textarea,
+  input,
+  select,
+  button {
+    font: inherit;
+    color: inherit;
+  }
 
-textarea,
-input,
-select {
-  font-size: 16px; /* stops iOS zoom-on-focus */
+  textarea,
+  input,
+  select {
+    font-size: 1rem; /* fallback for a field that carries no size of its own */
+  }
 }
 
 @layer utilities {
+  /* Every tappable control carries this: no grey flash, no double-tap zoom. */
+  .tap {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  /* Text fields: one look for every input, select and textarea in the board. */
+  .field {
+    width: 100%;
+    border: 1px solid var(--color-ink-700);
+    border-radius: 0.75rem;
+    background: var(--color-ink-900);
+    padding: 0.5rem 0.75rem;
+    font-size: 1rem; /* ≥16px on every root size, which is what stops iOS zoom-on-focus */
+    color: inherit;
+  }
+  .field:disabled {
+    opacity: 0.5;
+  }
   .pad-top {
     padding-top: max(0.75rem, var(--safe-top));
   }
@@ -124,7 +152,7 @@ select {
   border-radius: 0.5rem;
   padding: 0.6rem;
   overflow-x: auto;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
 }
 
 @keyframes pulse-dot {

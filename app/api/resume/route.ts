@@ -1,12 +1,12 @@
 import { board } from "@/lib/herdr/board";
-import { agentName, modelArgs, resumeArgs } from "@/lib/herdr/names";
+import { freeAgentName, modelArgs, resumeArgs } from "@/lib/herdr/names";
 import { sessionFromBody, socketForSession, unknownSession } from "@/lib/herdr/request";
 import { herdrRequest } from "@/lib/herdr/rpc";
 import type { BoardPane } from "@/lib/herdr/types";
 
 export const dynamic = "force-dynamic";
 
-type ResumeBody = { session?: unknown; workspace?: unknown; model?: unknown };
+type ResumeBody = { session?: unknown; workspace?: unknown; pane?: unknown; model?: unknown };
 
 const PANE_RESULT = /type":\s*"pane_info/;
 
@@ -16,9 +16,9 @@ function pickPane(result: unknown): string | null {
 }
 
 /**
- * Reopen a workspace's most recent agent session in a new pane, using the agent's own resume
- * flag. herdr only reports session references for agents that are still running, so a pane
- * whose agent exited has nothing to resume.
+ * Reopen a workspace agent's own session in a new pane, using its resume flag. The session
+ * comes from herdr's reference and nothing else: an agent that never reported one (its
+ * integration was missing or came later) has no session to continue, and says so.
  */
 export async function POST(request: Request): Promise<Response> {
   let body: ResumeBody;
@@ -32,16 +32,20 @@ export async function POST(request: Request): Promise<Response> {
   if (unknown) return unknown;
   const workspaceId = typeof body.workspace === "string" ? body.workspace : "";
   const socket = socketForSession(session);
+  const state = board(session).getState();
 
-  const candidates = board(session)
-    .getState()
-    .panes.filter((pane) => pane.workspace_id === workspaceId && pane.agent && pane.agent_session)
-    .sort((a, b) => (b.revision ?? 0) - (a.revision ?? 0));
+  const candidates = state.panes.filter((pane) => pane.workspace_id === workspaceId && pane.agent).sort((a, b) => (b.revision ?? 0) - (a.revision ?? 0));
 
-  const source: BoardPane | undefined = candidates[0];
-  if (!source) {
+  // The sheet lets the user pick which session to continue; without a pick the newest pane wins.
+  const requested = typeof body.pane === "string" ? body.pane : "";
+  const source: BoardPane | undefined = requested ? candidates.find((pane) => pane.pane_id === requested) : candidates[0];
+  if (!source) return Response.json({ error: "no agent in this workspace to continue" }, { status: 409 });
+
+  if (!source.agent_session) {
     return Response.json(
-      { error: "no resumable agent in this workspace — herdr reports a session only while the agent runs" },
+      {
+        error: `${source.agent} (${source.pane_id}) never reported a session to herdr — its integration reports one when the agent starts, so restart it and retry`,
+      },
       { status: 409 },
     );
   }
@@ -66,7 +70,7 @@ export async function POST(request: Request): Promise<Response> {
     await herdrRequest(
       "agent.start",
       {
-        name: agentName(`${source.display_agent ?? source.agent}-resume`, source.agent ?? "agent"),
+        name: freeAgentName(`${source.display_agent ?? source.agent}-resume`, state.agents.map((agent) => agent.name)),
         kind: source.agent,
         pane_id: paneId,
         args,
@@ -76,7 +80,7 @@ export async function POST(request: Request): Promise<Response> {
       socket,
     );
     board(session).scheduleRefresh(200);
-    return Response.json({ pane_id: paneId, kind: source.agent, resumed: source.agent_session?.value ?? null });
+    return Response.json({ pane_id: paneId, kind: source.agent, resumed: source.agent_session.value });
   } catch (err) {
     return Response.json({ error: (err as Error).message }, { status: 502 });
   }

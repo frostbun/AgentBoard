@@ -107,6 +107,9 @@ export function readOmpSession(file: string, limit: number): ChatSession {
       const snapshot = asRecord(message.contextSnapshot);
       if (snapshot && typeof snapshot.promptTokens === "number") usage.context_tokens = snapshot.promptTokens;
       if (typeof message.completedAt === "number") lastCompletedAt = message.completedAt as number;
+      // A session started with `--model` never writes a model_change, so the first turn's
+      // own model is the only place its model is named.
+      if (session.model === null) session.model = asString(message.model) ?? null;
     }
     if (typeof message.timestamp === "number" && firstAt === null) firstAt = message.timestamp as number;
     if (typeof message.completedAt === "number") lastCompletedAt = message.completedAt as number;

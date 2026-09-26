@@ -74,8 +74,8 @@ export type ChatSession = {
   agent: string;
   source: "transcript" | "none";
   ref: string | null;
-  /** Whether herdr named this session or the board inferred it from the pane's cwd. */
-  refSource?: "herdr" | "discovered" | "none";
+  /** `herdr` when herdr named the session, `none` when it did not (the board reports that, it never guesses). */
+  refSource?: "herdr" | "none";
   /** herdr named a session file that the agent has not written yet. */
   awaitingFirstMessage?: boolean;
   title: string | null;

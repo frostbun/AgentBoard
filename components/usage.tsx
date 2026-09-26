@@ -46,7 +46,7 @@ export function UsageBar({ usage, model }: { usage: ChatUsage | undefined; model
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="tap flex w-full items-center gap-1.5 overflow-x-auto border-b border-ink-850 px-3 py-1.5 text-left text-[0.65rem] whitespace-nowrap text-ink-400 no-scrollbar"
+        className="tap flex w-full items-center gap-1.5 overflow-x-auto border-b border-ink-850 px-3 py-2 text-left text-xs whitespace-nowrap text-ink-400 no-scrollbar"
         title="Token, time and context usage"
       >
         <span className="text-ink-200">↑{formatTokens(usage.input_tokens)}</span>

@@ -48,21 +48,21 @@ function recentOmpModels(limit: number): string[] {
   return [...seen].slice(0, limit);
 }
 
-function ompConfigModels(): string[] {
-  const file = path.join(os.homedir(), ".omp", "agent", "models.yml");
-  let text: string;
-  try {
-    text = fs.readFileSync(file, "utf8");
-  } catch {
-    return [];
-  }
-  // Tiny YAML subset: `provider:` blocks with `- id: model` entries.
+/**
+ * The `providers:` subset of models.yml: a provider is the last bare `key:` line before its
+ * `models:` block, and the `- id:` entries under it are its models. Matching *every* bare key
+ * also caught the top-level `providers:` wrapper and the `models:` container itself, which
+ * offered junk ids like `providers/<id>` and `models/<id>` in the model picker.
+ */
+export function parseOmpModels(text: string): string[] {
   const models: string[] = [];
   let provider: string | null = null;
+  let lastKey: string | null = null;
   for (const line of text.split("\n")) {
-    const providerMatch = /^(\w[\w.-]*):\s*$/.exec(line);
-    if (providerMatch) {
-      provider = providerMatch[1];
+    const key = /^\s*([\w.-]+):\s*$/.exec(line);
+    if (key) {
+      if (key[1] === "models") provider = lastKey ?? provider;
+      else lastKey = key[1];
       continue;
     }
     const idMatch = /^\s*-\s*id:\s*(\S+)\s*$/.exec(line);
@@ -72,6 +72,15 @@ function ompConfigModels(): string[] {
     }
   }
   return provider === null ? [] : models;
+}
+
+function ompConfigModels(): string[] {
+  const file = path.join(os.homedir(), ".omp", "agent", "models.yml");
+  try {
+    return parseOmpModels(fs.readFileSync(file, "utf8"));
+  } catch {
+    return [];
+  }
 }
 
 function claudeConfigModels(): string[] {
