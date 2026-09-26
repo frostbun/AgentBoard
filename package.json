@@ -9,7 +9,8 @@
     "start": "next start -p ${PORT:-4317} -H ${HOST:-0.0.0.0}",
     "typecheck": "tsc --noEmit",
     "check:sessions": "bun scripts/check-session-guard.ts",
-    "check": "bun scripts/check-input-line.ts && bun scripts/check-models.ts && bun scripts/check-names.ts && bun scripts/check-session-guard.ts"
+    "check:session-list": "bun scripts/check-session-list.ts",
+    "check": "bun scripts/check-input-line.ts && bun scripts/check-models.ts && bun scripts/check-names.ts && bun scripts/check-session-guard.ts && bun scripts/check-session-list.ts"
   },
   "dependencies": {
     "next": "^16.3.6",

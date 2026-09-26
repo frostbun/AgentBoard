@@ -20,12 +20,32 @@ import {
 } from "@/components/use-board";
 import type { SessionInfo } from "@/components/session-chip";
 import { agentName, sessionId } from "@/lib/herdr/names";
+import type { AgentSessionSummary, SessionOutcome } from "@/lib/chat/types";
 import { closeWarning, paneTitle, type AttentionItem, type BoardPane, type WorkspaceInfo } from "@/lib/herdr/types";
 
 type SessionAttention = AttentionItem & { session: string };
 
 /** A destructive tap parked behind a sheet; `run` returns true when it asked a follow-up. */
 type Asked = { title: string; body: string; label: string; run: () => Promise<boolean> };
+
+/** How a past session's last turn ended, in the words the agents' own pickers use. */
+const OUTCOME_LABEL: Record<SessionOutcome, string> = {
+  done: "exited done",
+  aborted: "exited aborted",
+  interrupted: "exited interrupted",
+  error: "exited with an error",
+  pending: "never replied",
+  unknown: "end not recorded",
+};
+
+const OUTCOME_TONE: Record<SessionOutcome, string> = {
+  done: "text-[var(--color-done)]",
+  aborted: "text-ink-400",
+  interrupted: "text-[var(--color-working)]",
+  error: "text-[var(--color-blocked)]",
+  pending: "text-ink-400",
+  unknown: "text-ink-400",
+};
 
 /** Free-text match over everything a row shows, so one box searches agents and places. */
 function matches(pane: BoardPane, session: SessionSnapshot, workspace: WorkspaceInfo, needle: string): boolean {
@@ -233,10 +253,16 @@ export default function FleetPage() {
     session: string;
     /** Every agent pane in the workspace, newest first — each one is a resumable session. */
     candidates: { pane: BoardPane; title: string | null }[];
+    /** What the agents' stores kept for the workspace's directories, newest first. */
+    history: AgentSessionSummary[];
+    /** Selected live pane; empty when a past session is picked instead. */
     paneId: string;
+    /** `agent:id` of the selected past session. */
+    sessionKey: string;
   } | null>(null);
   const [resumeModel, setResumeModel] = useState("");
-  const [resumeModels, setResumeModels] = useState<string[]>([]);
+  /** null while nothing is selected or the list is still coming; `[]` when the agent takes no model flag. */
+  const [resumeModels, setResumeModels] = useState<string[] | null>(null);
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [permission, setPermission] = useState<NotificationState>("default");
   const [testSent, setTestSent] = useState<string | null>(null);
@@ -370,19 +396,41 @@ export default function FleetPage() {
     });
   };
 
-  const loadResumeModels = (kind: string | null | undefined) => {
-    setResumeModels([]);
-    if (!kind) return;
-    fetch(`/api/models?kind=${encodeURIComponent(kind)}`, { cache: "no-store" })
-      .then((response) => response.json())
-      .then((payload: { models?: string[] }) => setResumeModels(payload.models ?? []))
-      .catch(() => setResumeModels([]));
-  };
+  /** The agent whose models the sheet offers — the picked past session, or the picked pane. */
+  const resumeKind = useMemo(() => {
+    const target = resumeTarget;
+    if (!target) return "";
+    const past = target.history.find((entry) => `${entry.agent}:${entry.id}` === target.sessionKey);
+    if (past) return past.agent;
+    return target.candidates.find((entry) => entry.pane.pane_id === target.paneId)?.pane.agent ?? "";
+  }, [resumeTarget]);
 
-  /** Opens the resume sheet: every agent pane in the workspace is one resumable session. */
+  /** Model list for whatever is selected; null while the sheet has no kind to ask about. */
+  useEffect(() => {
+    setResumeModel("");
+    setResumeModels(null);
+    if (!resumeKind) return;
+    let live = true;
+    fetch(`/api/models?kind=${encodeURIComponent(resumeKind)}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload: { models?: string[] }) => {
+        if (live) setResumeModels(payload.models ?? []);
+      })
+      .catch(() => {
+        if (live) setResumeModels([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [resumeKind]);
+
+  /**
+   * Opens the resume sheet: the workspace's live agent panes (herdr knows their sessions)
+   * plus what the agents' stores kept for its directories — the sessions whose panes are
+   * gone, each marked with how it ended last time. Past sessions arrive a beat later.
+   */
   const openResume = (workspace: WorkspaceInfo, sessionId: string) => {
     setError(null);
-    setResumeModel("");
     const state = sessions.find((entry) => entry.id === sessionId)?.state;
     const panes = (state?.panes ?? [])
       .filter((pane) => pane.workspace_id === workspace.workspace_id && pane.agent)
@@ -394,19 +442,44 @@ export default function FleetPage() {
       workspace,
       session: sessionId,
       candidates: panes.map((pane) => ({ pane, title: paneTitle(pane) })),
+      history: [],
       paneId: preset?.pane_id ?? "",
+      sessionKey: "",
     });
-    loadResumeModels(preset?.agent);
+    fetch(`/api/resume?session=${encodeURIComponent(sessionId)}&workspace=${encodeURIComponent(workspace.workspace_id)}`, {
+      cache: "no-store",
+    })
+      .then((response) => response.json())
+      .then((payload: { sessions?: AgentSessionSummary[] }) => {
+        const history = payload.sessions ?? [];
+        setResumeTarget((current) => {
+          if (!current || current.session !== sessionId || current.workspace.workspace_id !== workspace.workspace_id) return current;
+          const picked = current.candidates.find((entry) => entry.pane.pane_id === current.paneId);
+          if (current.sessionKey || picked?.pane.agent_session) return { ...current, history };
+          // Nothing continuable is selected: the newest past session is the natural pick.
+          const fallback = history[0];
+          return fallback
+            ? { ...current, history, paneId: "", sessionKey: `${fallback.agent}:${fallback.id}` }
+            : { ...current, history };
+        });
+      })
+      .catch(() => undefined);
   };
 
   const pickResumePane = (pane: BoardPane) => {
-    setResumeTarget((current) => (current ? { ...current, paneId: pane.pane_id } : current));
-    loadResumeModels(pane.agent);
+    setResumeTarget((current) => (current ? { ...current, paneId: pane.pane_id, sessionKey: "" } : current));
+  };
+
+  const pickResumeSession = (entry: AgentSessionSummary) => {
+    setResumeTarget((current) => (current ? { ...current, paneId: "", sessionKey: `${entry.agent}:${entry.id}` } : current));
   };
 
   const resumeAgent = async () => {
     const target = resumeTarget;
-    if (!target?.paneId) return;
+    if (!target) return;
+    const past = target.history.find((entry) => `${entry.agent}:${entry.id}` === target.sessionKey);
+    const pane = target.candidates.find((entry) => entry.pane.pane_id === target.paneId)?.pane;
+    if (!past && !pane?.agent_session) return;
     setBusy(true);
     setError(null);
     try {
@@ -416,7 +489,7 @@ export default function FleetPage() {
         body: JSON.stringify({
           session: target.session,
           workspace: target.workspace.workspace_id,
-          pane: target.paneId,
+          ...(past ? { agent: past.agent, id: past.id } : { pane: pane!.pane_id }),
           model: resumeModel || null,
         }),
       });
@@ -547,7 +620,9 @@ export default function FleetPage() {
   };
 
   const live = sessions.some((entry) => entry.state.connected);
-  const resumeSelected = resumeTarget?.candidates.find((entry) => entry.pane.pane_id === resumeTarget.paneId) ?? null;
+  const resumeSelectedPane = resumeTarget?.candidates.find((entry) => entry.pane.pane_id === resumeTarget.paneId)?.pane ?? null;
+  const resumeSelectedPast = resumeTarget?.history.find((entry) => `${entry.agent}:${entry.id}` === resumeTarget.sessionKey) ?? null;
+  const resumeReady = Boolean(resumeSelectedPast || resumeSelectedPane?.agent_session);
   const visibleAttention = filtered
     ? attention.filter((item) => `${item.agent} ${item.title} ${item.workspace_label}`.toLowerCase().includes(needle.toLowerCase()))
     : attention;
@@ -742,34 +817,65 @@ export default function FleetPage() {
                 </span>
               </Button>
             ))}
+            {resumeTarget?.history.length ? (
+              <h3 className="pt-1 text-[0.7rem] font-semibold uppercase tracking-wider text-ink-400">
+                Past sessions
+              </h3>
+            ) : null}
+            {resumeTarget?.history.map((entry) => {
+              const key = `${entry.agent}:${entry.id}`;
+              return (
+                <Button
+                  key={key}
+                  full
+                  size="sm"
+                  tone={key === resumeTarget.sessionKey ? "accent" : "default"}
+                  onClick={() => pickResumeSession(entry)}
+                >
+                  <span className="min-w-0 flex-1 text-left">
+                    <span className="block truncate">
+                      {entry.agent} <span className="text-ink-400">{entry.id.slice(0, 8)}</span>
+                      <span className={`ml-2 text-[0.7rem] ${OUTCOME_TONE[entry.outcome]}`}>{OUTCOME_LABEL[entry.outcome]}</span>
+                    </span>
+                    <span className="block truncate text-[0.75rem] text-ink-400">{entry.title ?? "untitled"}</span>
+                    <span className="block truncate text-[0.7rem] text-ink-400">
+                      session {entry.id} · {timeAgo(entry.updated_at)} ago · {shortCwd(entry.cwd)}
+                    </span>
+                  </span>
+                </Button>
+              );
+            })}
           </div>
           <select
             value={resumeModel}
             onChange={(event) => setResumeModel(event.target.value)}
-            disabled={!resumeModels.length}
+            disabled={!resumeModels?.length}
             className="field"
           >
             <option value="">model: as before</option>
-            {resumeModels.map((entry) => (
+            {(resumeModels ?? []).map((entry) => (
               <option key={entry} value={entry}>
                 {entry}
               </option>
             ))}
           </select>
-          {!resumeTarget?.candidates.length ? (
-            <p className="text-[0.75rem] text-[var(--color-blocked)]">No agent in this workspace to continue.</p>
+          {resumeReady && resumeModels?.length === 0 ? (
+            <p className="text-[0.75rem] text-ink-400">This agent has no model flag — it starts with its own default.</p>
           ) : null}
-          {resumeSelected && !resumeSelected.pane.agent_session ? (
+          {!resumeTarget?.candidates.length && !resumeTarget?.history.length ? (
             <p className="text-[0.75rem] text-[var(--color-blocked)]">
-              herdr has no session reference for {resumeSelected.pane.pane_id} — this agent never reported one, so there is
+              Nothing to continue: this workspace has no agent pane, and the agents&apos; stores kept no session for its
+              directory.
+            </p>
+          ) : null}
+          {resumeSelectedPane && !resumeSelectedPane.agent_session ? (
+            <p className="text-[0.75rem] text-[var(--color-blocked)]">
+              herdr has no session reference for {resumeSelectedPane.pane_id} — this agent never reported one, so there is
               nothing to continue. Restart the agent (its integration reports a session when it starts) and retry.
             </p>
           ) : null}
-          {resumeSelected?.pane.agent_session && !resumeModels.length ? (
-            <p className="text-[0.75rem] text-ink-400">This agent has no model flag — it starts with its own default.</p>
-          ) : null}
           {error ? <p className="text-[0.8rem] text-[var(--color-blocked)]">{error}</p> : null}
-          <Button full tone="primary" disabled={!resumeSelected?.pane.agent_session || busy} onClick={() => void resumeAgent()}>
+          <Button full tone="primary" disabled={!resumeReady || busy} onClick={() => void resumeAgent()}>
             {busy ? "resuming…" : "Resume"}
           </Button>
         </div>

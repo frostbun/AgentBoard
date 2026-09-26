@@ -89,6 +89,24 @@ export type ChatSession = {
   error?: string;
 };
 
+/**
+ * How a session's last turn ended, in the agents' own vocabulary: omp renders its session
+ * list as done/interrupted/aborted/error, and the board's resume sheet shows the same words.
+ */
+export type SessionOutcome = "done" | "aborted" | "interrupted" | "error" | "pending" | "unknown";
+
+/** One session an agent's own store kept for a directory — what the resume sheet lists. */
+export type AgentSessionSummary = {
+  /** `omp` covers pi too (one store); the others are claude and opencode. */
+  agent: string;
+  id: string;
+  title: string | null;
+  /** The directory the session was started in; the store it came from is scoped to it. */
+  cwd: string;
+  updated_at: number;
+  outcome: SessionOutcome;
+};
+
 export const QUESTION_TOOLS = new Set(["ask", "question", "AskUserQuestion", "ask_user"]);
 
 export function emptySession(agent: string, error?: string): ChatSession {

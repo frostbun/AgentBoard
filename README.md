@@ -66,7 +66,7 @@ pause while the tab is hidden.
 | Two-way input sync: typing here writes to the agent's prompt as you type, and typing in herdr first appears here (the terminal is the source of truth) | `pane.send_text`/`send_keys`, `pane.read` + input-line parser |
 | Attention inbox: blocked/done agents, browser notification + sound, muted toggle. Review focuses the pane on the way into the chat, so herdr's "finished, unseen" state clears | `agent_status` rollups, `pane.focus` |
 | Notification panel: permission state, "Send test notification", mute; per-device via localStorage | Web Notifications API |
-| Session resume: the ↻ on a workspace lists every agent session there and reopens the one you pick in a new pane; the chat copies `omp --resume <id>` / `claude --resume <id>` / `opencode --session <id>` | `agent_session` refs (or the transcript's own id), `pane.split` + `agent.start` |
+| Session resume: the ↻ on a workspace lists its live agent panes **and** the sessions the agents' stores kept for that directory, each past one labelled with how it ended last time (exited done/aborted/interrupted), and reopens the picked one in a new pane; the chat copies `omp --resume <id>` / `claude --resume <id>` / `opencode --session <id>` | `agent_session` refs, `~/.omp/agent/sessions`, `~/.claude/projects`, opencode's sqlite, `pane.split` + `agent.start` |
 | Model switch inside a chat: the chip next to the Chat/Terminal tabs lists the models this machine has (and takes a typed id), then sends the agent's own `/model <id>` so the same session continues (omp, pi, claude) | `/api/models`, `agent.prompt` |
 
 Everything else herdr exposes (`layout.*`, `tab.*`, `worktree.*`, `notification.show`, …) is reachable through
@@ -139,6 +139,21 @@ names files `<timestamp>_<id>.jsonl` and Claude Code names them `<id>.jsonl`, wh
 (`claude --resume <path>` is not a session), so a path reference is reduced to its last underscore-suffixed
 segment.
 
+That reference only exists while the pane does, so the sheet lists **two** kinds of row. Live panes first: herdr
+knows which session each is running. Below them, the sessions the agents' own stores kept for the workspace's
+directories — `~/.omp/agent/sessions/<slug>` (one store for omp and pi, keyed home-relative like omp's own),
+`~/.claude/projects/<slug>`, and opencode's `session` table by `directory` — so a pane you closed is still one tap
+from being reopened. Each past row carries the outcome of its last turn in the words omp's own session list uses:
+the last message record decides (a stopped turn is *done*, `aborted`/`length` or an open tool call is
+*interrupted*/*aborted*), Claude Code's interrupt marker and stop reasons stand in for the same, and opencode's
+`finish` reason does. The same id+agent pair that a live pane already shows is not listed twice. Resuming a past
+session splits any live pane in the workspace (its own directory, so its own cwd) and starts the agent with the
+resume flag; herdr refuses `agent.start` until a fresh split's shell has its prompt back, so the board retries
+that briefly, then waits for the new pane's session reference before answering — the chat it opens onto has a
+transcript on arrival. Any chat opened onto a pane herdr has not named a session for yet says so
+("Waiting for herdr to report this agent's session…") and polls once a second, so a spawn or resume never wears
+the standing "this agent never reported one" notice while herdr is still catching up.
+
 ## Integrations (why `agent.prompt` may fall back)
 
 `agent.prompt` only works while herdr's lifecycle integration for that agent reports it as ready. Check:
@@ -165,9 +180,10 @@ components/              chat renderer, fleet bits, bottom nav, SSE hook
 lib/herdr/rpc.ts         one-shot request over a dedicated socket
 lib/herdr/stream.ts      long-lived events.subscribe stream with reconnect
 lib/herdr/board.ts       in-memory mirror: snapshot polling, attention, SSE fanout
-lib/chat/                omp / claude / opencode transcript readers → ChatSession
+lib/chat/                omp / claude / opencode transcript readers → ChatSession,
+                         plus sessions.ts: their stores' own session lists + exit outcome
 lib/json.ts              pure narrowing helpers shared by server and client
-scripts/check-*.ts       `bun run check`: input-line parser, models.yml subset
+scripts/check-*.ts       `bun run check`: input-line parser, models.yml subset, session listing
 .docs/herdr-api-reference.md   generated from `herdr api schema` (0.9.1)
 ```
 

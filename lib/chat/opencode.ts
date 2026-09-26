@@ -15,7 +15,7 @@ import {
 const DEFAULT_DB = `${os.homedir()}/.local/share/opencode/opencode.db`;
 
 /** node:sqlite hands back TEXT columns verbatim, so JSON blobs arrive as strings. */
-function jsonColumn(value: unknown): Record<string, unknown> | null {
+export function jsonColumn(value: unknown): Record<string, unknown> | null {
   if (typeof value === "string") {
     try {
       const parsed = JSON.parse(value) as unknown;
@@ -28,12 +28,18 @@ function jsonColumn(value: unknown): Record<string, unknown> | null {
 }
 const DB_CACHE_KEY = "__agentboard_opencode_db__";
 
-function openDatabase(): DatabaseSync {
-  const store = globalThis as typeof globalThis & { [DB_CACHE_KEY]?: DatabaseSync };
-  if (!store[DB_CACHE_KEY]) {
-    store[DB_CACHE_KEY] = new DatabaseSync(process.env.OPENCODE_DB ?? DEFAULT_DB, { readOnly: true });
+/** One read-only handle per file, cached for the process (the session list reads it too). */
+export function openOpencodeDatabase(file: string = process.env.OPENCODE_DB ?? DEFAULT_DB): DatabaseSync {
+  const store = globalThis as typeof globalThis & { [DB_CACHE_KEY]?: { file: string; db: DatabaseSync } };
+  if (store[DB_CACHE_KEY]?.file !== file) {
+    try {
+      store[DB_CACHE_KEY]?.db.close();
+    } catch {
+      /* the previous handle is already gone */
+    }
+    store[DB_CACHE_KEY] = { file, db: new DatabaseSync(file, { readOnly: true }) };
   }
-  return store[DB_CACHE_KEY];
+  return store[DB_CACHE_KEY]!.db;
 }
 
 const TOOL_STATE: Record<string, ChatToolBlock["state"]> = {
@@ -49,7 +55,7 @@ export function readOpencodeSession(sessionId: string, limit: number): ChatSessi
   session.ref = sessionId;
   let db: DatabaseSync;
   try {
-    db = openDatabase();
+    db = openOpencodeDatabase();
   } catch (err) {
     session.error = `opencode db unavailable: ${(err as Error).message}`;
     return session;

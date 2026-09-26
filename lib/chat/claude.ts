@@ -12,7 +12,10 @@ import {
   type NumericUsageField,
 } from "./types";
 
-const SYSTEM_TAG = /^<(command-message|command-name|task-notification|system-reminder|local-command-stdout|user-prompt-submit-hook)/;
+export const SYSTEM_TAG = /^<(command-message|command-name|task-notification|system-reminder|local-command-stdout|user-prompt-submit-hook)/;
+
+/** The marker Claude Code writes when the user interrupts a turn. */
+export const CLAUDE_INTERRUPTED = /\[Request interrupted by user/;
 
 /**
  * Claude Code session JSONL (`~/.claude/projects/<slug>/<uuid>.jsonl`).
@@ -179,8 +182,16 @@ function numberOr(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
+/**
+ * Claude stores a session in a directory derived from its cwd: the absolute path with `/`
+ * and `.` flattened to dashes (`/home/u/p` → `-home-u-p`), so it stays host-shaped inside
+ * a container that mounts `~/.claude/projects`.
+ */
+export function claudeSessionDir(homeDir: string, cwd: string): string {
+  return `${homeDir}/.claude/projects/${cwd.replace(/[/\\]/g, "-").replace(/\./g, "-")}`;
+}
+
 /** Claude stores a session in a directory derived from its cwd. */
 export function claudeSessionPath(homeDir: string, cwd: string, id: string): string {
-  const slug = cwd.replace(/[/\\]/g, "-");
-  return `${homeDir}/.claude/projects/${slug}/${id}.jsonl`;
+  return `${claudeSessionDir(homeDir, cwd)}/${id}.jsonl`;
 }
