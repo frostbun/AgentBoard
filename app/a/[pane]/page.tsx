@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AgentNav } from "@/components/agent-nav";
 import { Button, ConfirmSheet, IconButton, iconClass, PromptSheet, Row, Screen, Sheet, StatusPill } from "@/components/bits";
 import { Composer, MessageList, ModelChip, QuestionCard } from "@/components/chat";
 import { UsageBar } from "@/components/usage";
@@ -197,6 +198,7 @@ export default function ChatPage() {
           <Link href="/" className={`${iconClass()} text-lg`} aria-label="Back to the board">
             ←
           </Link>
+          <AgentNav paneId={paneId} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="truncate text-sm font-semibold text-white">{agentLabel}</span>
