@@ -41,6 +41,8 @@ services:
       - ${HOME}/.local/share/opencode:/home/node/.local/share/opencode
       - ${HOME}/.cache/opencode:/home/node/.cache/opencode:ro
     # The herdr socket is owned by the host uid; match it if you are not uid 1000.
+    # Rootless Docker maps the host uid to container root, so the 0600 socket is only
+    # readable as root: set AGENTBOARD_UID=0 and AGENTBOARD_GID=0 in .env.
     user: "${AGENTBOARD_UID:-1000}:${AGENTBOARD_GID:-1000}"
     # userns_mode: keep-id   # podman rootless: uncomment so the socket is readable
     restart: unless-stopped
