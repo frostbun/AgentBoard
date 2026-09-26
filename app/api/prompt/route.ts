@@ -1,4 +1,4 @@
-import { sessionFromBody, socketForSession } from "@/lib/herdr/request";
+import { sessionFromBody, socketForSession, unknownSession } from "@/lib/herdr/request";
 import { herdrRequest } from "@/lib/herdr/rpc";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +26,10 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  const socket = socketForSession(sessionFromBody(body.session));
+  const session = sessionFromBody(body.session);
+  const unknown = unknownSession(session);
+  if (unknown) return unknown;
+  const socket = socketForSession(session);
   const pane = typeof body.pane === "string" ? body.pane : "";
   const text = typeof body.text === "string" ? body.text : "";
   if (!pane || !text.trim()) return Response.json({ error: "pane and text are required" }, { status: 400 });

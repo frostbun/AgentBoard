@@ -20,8 +20,24 @@ export function sessionIdForSocket(socket: string): string {
   return match ? match[1] : "default";
 }
 
+/**
+ * A session id becomes one path segment under `sessions/` and one argv entry for the herdr
+ * CLI, so a separator, a NUL byte, or a `.`/`..` segment must never get through: this is the
+ * only place an id off the wire turns into a socket path.
+ */
+export function isSessionId(sessionId: string): boolean {
+  return sessionId !== "" && sessionId !== "." && sessionId !== ".." && !/[/\\\0]/.test(sessionId);
+}
+
+/** A herdr session exists when the unnamed default is meant, or when its directory does. */
+export function sessionExists(sessionId: string): boolean {
+  if (sessionId === "default") return true;
+  return isSessionId(sessionId) && fs.existsSync(path.join(CONFIG_DIR, "sessions", sessionId));
+}
+
 export function sessionSocket(sessionId: string): string {
   if (!sessionId || sessionId === "default") return path.join(CONFIG_DIR, "herdr.sock");
+  if (!isSessionId(sessionId)) throw new Error(`invalid session id: ${JSON.stringify(sessionId)}`);
   return path.join(CONFIG_DIR, "sessions", sessionId, "herdr.sock");
 }
 

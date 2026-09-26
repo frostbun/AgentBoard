@@ -1,5 +1,5 @@
 import { board } from "@/lib/herdr/board";
-import { sessionFromBody, socketForSession } from "@/lib/herdr/request";
+import { sessionFromBody, socketForSession, unknownSession } from "@/lib/herdr/request";
 import { herdrRequest } from "@/lib/herdr/rpc";
 
 export const dynamic = "force-dynamic";
@@ -82,8 +82,11 @@ export async function POST(request: Request): Promise<Response> {
       : {};
   const timeoutMs = typeof body.timeout_ms === "number" && body.timeout_ms > 0 ? Math.min(body.timeout_ms, 300_000) : 30_000;
 
+  const session = sessionFromBody(body.session);
+  const unknown = unknownSession(session);
+  if (unknown) return unknown;
+
   try {
-    const session = sessionFromBody(body.session);
     const result = await herdrRequest(method, params, timeoutMs, socketForSession(session));
     if (method !== "session.snapshot" && method !== "agent.list") board(session).scheduleRefresh(200);
     return Response.json({ result }, { headers: { "cache-control": "no-store" } });

@@ -1,5 +1,5 @@
 import { SOCKET_PATH, herdrRequest } from "./rpc";
-import { sessionIdForSocket, sessionSocket } from "./sessions";
+import { sessionExists, sessionIdForSocket, sessionSocket } from "./sessions";
 import { HerdrStream, type PushEvent } from "./stream";
 import {
   paneTitle,
@@ -310,16 +310,12 @@ export function board(sessionId: string = DEFAULT_SESSION): Board {
     existing.stop?.();
     boards.delete(sessionId);
   }
-  if (!boards.has(sessionId)) {
-    const fresh = new Board(sessionId, sessionSocket(sessionId));
-    boards.set(sessionId, fresh);
-    fresh.start();
-  }
-  return boards.get(sessionId)!;
-}
-
-/** Every board the process has opened, plus the ids they answer for. */
-export function knownSessions(): string[] {
-  const g = globalThis as BoardGlobal;
-  return [...(g[GLOBAL_KEY]?.keys() ?? [])];
+  if (boards.has(sessionId)) return boards.get(sessionId)!;
+  // The id arrives from the client: one that no session answers to must not mint a board, or a
+  // run of made-up ids leaves a polling stream and a 5s snapshot timer behind for each of them.
+  if (!sessionExists(sessionId)) return new Board(sessionId, "");
+  const fresh = new Board(sessionId, sessionSocket(sessionId));
+  boards.set(sessionId, fresh);
+  fresh.start();
+  return fresh;
 }

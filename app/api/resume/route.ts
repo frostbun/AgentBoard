@@ -1,6 +1,6 @@
 import { board } from "@/lib/herdr/board";
 import { agentName, modelArgs, resumeArgs } from "@/lib/herdr/names";
-import { sessionFromBody, socketForSession } from "@/lib/herdr/request";
+import { sessionFromBody, socketForSession, unknownSession } from "@/lib/herdr/request";
 import { herdrRequest } from "@/lib/herdr/rpc";
 import type { BoardPane } from "@/lib/herdr/types";
 
@@ -28,6 +28,8 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "invalid JSON body" }, { status: 400 });
   }
   const session = sessionFromBody(body.session);
+  const unknown = unknownSession(session);
+  if (unknown) return unknown;
   const workspaceId = typeof body.workspace === "string" ? body.workspace : "";
   const socket = socketForSession(session);
 
