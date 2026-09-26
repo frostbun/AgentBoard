@@ -45,7 +45,7 @@ browser ──(cookie/token)──> proxy.ts ──> app/api/*/route.ts
 | Path | Purpose |
 |---|---|
 | `app/` | App Router pages: `page.tsx` (fleet), `a/[pane]/page.tsx` (chat), `new/page.tsx` (spawn) |
-| `app/api/*/route.ts` | The whole backend — 12 handlers: `action, agents, input-line, models, pane-text, prompt, resume, sessions, state, stream, tail, transcript` |
+| `app/api/*/route.ts` | The whole backend — 11 handlers: `action, agents, models, pane-text, prompt, resume, sessions, state, stream, tail, transcript` |
 | `components/` | Client UI: `use-board.ts` (SSE hooks + `callAction`), `chat.tsx`, `bits.tsx` (atoms/sheets), `usage.tsx`, `agent-nav.tsx`, `session-chip.tsx`, `scroll-hider.tsx` |
 | `lib/herdr/` | Transport + state: `rpc.ts`, `stream.ts`, `board.ts`, `sessions.ts`, `panes.ts`, `request.ts`, `models.ts`, `names.ts`, `input-line.ts`, `types.ts` |
 | `lib/chat/` | Transcript readers: `index.ts`, `omp.ts`, `claude.ts`, `opencode.ts`, `sessions.ts`, `models.ts`, `watch.ts`, `jsonl.ts`, `types.ts` |

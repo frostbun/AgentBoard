@@ -262,21 +262,17 @@ export function useAutoGrow(value: string, maxPx: number): RefObject<HTMLTextAre
 }
 
 /**
- * Mirrors what you type into the agent's own input line as you type it, so the pane
- * shows the same text before anything is submitted. Diffs against what was already
- * sent: appended characters are sent as text, deletions as backspaces.
+ * Mirrors what you type into a live TUI dialog's own input row (the question card's
+ * custom answer), so the dialog shows the same text before it is submitted. Diffs
+ * against what was already sent: appended characters as text, deletions as backspaces.
  */
 export function useTypeMirror(
   paneId: string,
   session?: string,
-  /** Agent panes submit on Enter, so a newline has to be a chord; shells take the raw byte. */
-  agentPane = true,
 ): {
   mirror: (text: string) => void;
   forget: () => void;
   last: () => string;
-  /** Adopt text that appeared in the terminal without the board sending it. */
-  adopt: (text: string) => void;
 } {
   const sent = useRef("");
   const queued = useRef<string | null>(null);
@@ -296,11 +292,11 @@ export function useTypeMirror(
         await callAction("pane.send_keys", { pane_id: paneId, keys: Array.from({ length: removals }, () => "backspace") }, 30_000, session);
       }
       if (appended) {
-        // A literal newline would submit the prompt, so agents that treat Enter as "send"
-        // get their own newline chord (shift+enter) instead. Shells take the raw newline.
+        // A literal newline would submit the answer, so agents that treat Enter as "send"
+        // get their own newline chord (shift+enter) instead.
         const segments = appended.split("\n");
         for (const [index, segment] of segments.entries()) {
-          if (index > 0 && agentPane) await callAction("pane.send_keys", { pane_id: paneId, keys: ["shift+enter"] }, 30_000, session);
+          if (index > 0) await callAction("pane.send_keys", { pane_id: paneId, keys: ["shift+enter"] }, 30_000, session);
           if (segment) await callAction("pane.send_text", { pane_id: paneId, text: segment }, 30_000, session);
         }
       }
@@ -308,7 +304,7 @@ export function useTypeMirror(
     } catch {
       /* best effort: the submit path still reports real failures */
     }
-  }, [paneId, session, agentPane]);
+  }, [paneId, session]);
 
   const mirror = useCallback(
     (text: string) => {
@@ -326,10 +322,5 @@ export function useTypeMirror(
 
   const last = useCallback(() => sent.current, []);
 
-  const adopt = useCallback((text: string) => {
-    queued.current = null;
-    sent.current = text;
-  }, []);
-
-  return useMemo(() => ({ mirror, forget, last, adopt }), [mirror, forget, last, adopt]);
+  return useMemo(() => ({ mirror, forget, last }), [mirror, forget, last]);
 }

@@ -281,7 +281,6 @@ export default function ChatPage() {
         paneId={paneId}
         session={pageSession ?? undefined}
         hasAgent={Boolean(pane?.agent)}
-        blocked={pane?.agent_status === "blocked"}
         running={pane?.agent_status === "working"}
         showKeys={view === "terminal"}
       />

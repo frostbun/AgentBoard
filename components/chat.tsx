@@ -5,7 +5,7 @@ import type { ChatMsg, ChatQuestion, ChatSession, ChatToolBlock, PendingQuestion
 import { Button, IconButton, Row, Sheet } from "./bits";
 import { formatDuration } from "./usage";
 import { modelCommand, supportsModel } from "@/lib/herdr/names";
-import { activeSession, callAction, useAutoGrow, useTypeMirror, withSession } from "./use-board";
+import { activeSession, callAction, useAutoGrow, useTypeMirror } from "./use-board";
 
 /* ------------------------------------------------------------------ text -- */
 
@@ -727,7 +727,6 @@ export function Composer({
   paneId,
   session,
   hasAgent = true,
-  blocked = false,
   running = false,
   showKeys = true,
   placeholder = "Message this agent…",
@@ -735,8 +734,6 @@ export function Composer({
   paneId: string;
   session?: string;
   hasAgent?: boolean;
-  /** A question dialog owns the input line while blocked, so syncing pauses. */
-  blocked?: boolean;
   /** The agent is mid-turn: only then can it be stopped. */
   running?: boolean;
   /** The raw key row belongs to the Terminal tab. */
@@ -746,42 +743,7 @@ export function Composer({
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState<string | null>(null);
-  const typeMirror = useTypeMirror(paneId, session, hasAgent);
   const draftRef = useAutoGrow(draft, 160);
-  const draftState = useRef({ value: draft, editedAt: 0 });
-  draftState.current.value = draft;
-
-  // herdr may own the input too: read its line and adopt it unless the board is mid-edit.
-  useEffect(() => {
-    if (!hasAgent || blocked) return;
-    let alive = true;
-    const poll = async () => {
-      if (document.hidden) return;
-      try {
-        const response = await fetch(withSession(`/api/input-line?pane=${encodeURIComponent(paneId)}`, session), { cache: "no-store" });
-        const payload = (await response.json()) as { text?: string | null };
-        if (!alive || payload.text === null || payload.text === undefined) return;
-        const known = typeMirror.last();
-        if (payload.text === known) return;
-        // A long draft scrolls inside the agent's box, so the screen only shows its tail:
-        // an extraction contained in what we already know is that window, not an edit.
-        if (known && known.includes(payload.text)) return;
-        // Anything the user typed here but we have not mirrored yet outranks the terminal.
-        if (draftState.current.value !== known) return;
-        typeMirror.adopt(payload.text);
-        setDraft(payload.text);
-      } catch {
-        /* best effort */
-      }
-    };
-    const timer = setInterval(() => void poll(), 1300);
-    void poll();
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, [paneId, session, hasAgent, blocked, typeMirror, draftRef]);
 
   const send = async () => {
     const text = draft.trim();
@@ -789,27 +751,14 @@ export function Composer({
     setBusy(true);
     setError(null);
     try {
-      if (typeMirror.last() === text) {
-        // The agent's input line already holds this text, verbatim.
-        await callAction(
-          hasAgent ? "agent.send_keys" : "pane.send_keys",
-          hasAgent ? { target: paneId, keys: ["enter"] } : { pane_id: paneId, keys: ["enter"] },
-          30_000,
-          session,
-        );
-        setSent("sent ⏎ — text was already mirrored into the pane");
-      } else {
-        const response = await fetch("/api/prompt", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ pane: paneId, text, session: session ?? activeSession() }),
-        });
-        const payload = (await response.json()) as { warning?: string; error?: string };
-        if (!response.ok || payload.error) throw new Error(payload.error ?? `HTTP ${response.status}`);
-        if (payload.warning) setError(payload.warning);
-        setSent(null);
-      }
-      typeMirror.forget();
+      const response = await fetch("/api/prompt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pane: paneId, text, session: session ?? activeSession() }),
+      });
+      const payload = (await response.json()) as { warning?: string; error?: string };
+      if (!response.ok || payload.error) throw new Error(payload.error ?? `HTTP ${response.status}`);
+      if (payload.warning) setError(payload.warning);
       setDraft("");
     } catch (err) {
       setError((err as Error).message);
@@ -845,11 +794,7 @@ export function Composer({
         <textarea
           ref={draftRef}
           value={draft}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            draftState.current.editedAt = Date.now();
-            typeMirror.mirror(event.target.value);
-          }}
+          onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
@@ -864,9 +809,7 @@ export function Composer({
           {busy ? "…" : "Send"}
         </Button>
       </div>
-      {sent || error ? (
-        <div className={`pt-1 text-[0.75rem] ${error ? "text-[var(--color-blocked)]" : "text-ink-400"}`}>{error ?? sent}</div>
-      ) : null}
+      {error ? <div className="pt-1 text-[0.75rem] text-[var(--color-blocked)]">{error}</div> : null}
       <div className={`mt-1 gap-1.5 overflow-x-auto no-scrollbar pb-1 ${showKeys ? "flex" : "hidden"}`}>
         {(
           [

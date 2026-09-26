@@ -63,7 +63,7 @@ pause while the tab is hidden.
 | Pending-question cards with option buttons; answers sent as keystrokes | transcript tool calls + `pane.send_keys` / `pane.send_text` |
 | Spawn: existing workspace, new workspace, or isolated git worktree; the agent gets a tab of its own; optional first prompt | `tab.create`, `workspace.create`, `worktree.create`, `agent.start` |
 | Prompt & steer: composer, Esc/Ctrl-C/arrows, interrupt, rename, zoom, focus, close pane | `agent.prompt`, `agent.send_keys`, `pane.*` |
-| Two-way input sync: typing here writes to the agent's prompt as you type, and typing in herdr first appears here (the terminal is the source of truth) | `pane.send_text`/`send_keys`, `pane.read` + input-line parser |
+| Prompt hygiene: a prompt sent from the board empties the agent's input line first, so a draft left in the pane cannot ride along in front of it | `pane.read` + input-line parser, `pane.send_keys` backspaces |
 | Attention inbox: blocked/done agents, browser notification + sound, muted toggle. Review focuses the pane on the way into the chat, so herdr's "finished, unseen" state clears | `agent_status` rollups, `pane.focus` |
 | Notification panel: permission state, "Send test notification", mute; per-device via localStorage | Web Notifications API |
 | Session resume: the ↻ on a workspace lists its live agent panes **and** the sessions the agents' stores kept for that directory, each past one labelled with how it ended last time (exited done/aborted/interrupted), and reopens the picked one in a new pane; the chat copies `omp --resume <id>` / `claude --resume <id>` / `opencode --session <id>` | `agent_session` refs, `~/.omp/agent/sessions`, `~/.claude/projects`, opencode's sqlite, `pane.split` + `agent.start` |
@@ -100,16 +100,16 @@ Everything else herdr exposes (`layout.*`, `tab.*`, `worktree.*`, `notification.
 - **Markdown in transcripts is rendered**, including GFM tables, fenced code, headings, lists, inline code, bold, and links.
 - **Terminal answers are keystrokes.** Option *n* is `down`×n + `enter`; multi-select toggles with `space` and
   submits with `enter`. The button labels show exactly what gets sent.
-- **Input sync is bidirectional and always on.** The board diffs what you type and sends only the delta
-  (backspaces for deletions); a 1.3 s poll parses the agent's input line out of the rendered screen
-  (`lib/herdr/input-line.ts`, covered by `bun run check`) and adopts it when herdr owns the typing. Only the
-  bottom-most box on screen counts as the prompt: omp's welcome panel is box-shaped too, and walking up from an
-  empty prompt used to serve its tips as a draft (which the mirror then typed into the agent). While the
-  composer has unsent local edits it never fights you, and it pauses entirely when a question dialog owns input.
-  A newline you type is sent as the agent's own newline chord (`shift+enter`) rather than Enter, so a multiline
-  draft does not submit itself; shells get the raw newline. A draft you have typed here is never overwritten by
-  the terminal: while the board holds unsent text, and whenever the terminal only shows the tail of a scrolled
-  box, the polled text is ignored.
+- **A prompt is written into an empty input line.** The composer does not mirror into the pane — a draft lives
+  here until Send, and what you type in herdr is not adopted into the box. `POST /api/prompt` reads the pane's
+  rendered screen first and backspaces away whatever the input line already held: `agent.prompt` and
+  `pane.send_input` both write at the cursor, so a leftover draft would otherwise ride along in front of the
+  prompt. Only the bottom-most box on screen counts as the prompt — omp's welcome panel is box-shaped too, and
+  walking up from an empty prompt used to serve its tips as a draft — and `lib/herdr/input-line.ts` is covered by
+  `bun run check`. The read only sees the visible rows, so a draft longer than the screen is cleared in rounds;
+  a blocked agent is left untouched because a question dialog owns that row. Typing a custom answer into a
+  question card still mirrors into the dialog as you type (that text has to arrive in the TUI), and its newlines
+  go as the agent's own newline chord (`shift+enter`) rather than Enter.
 - **Long transcripts do not re-render for nothing.** A poll whose payload says nothing new keeps the previous
   parsed object, so React bails out; an idle agent's chat view produces zero DOM mutations between changes.
 - **The fleet has no session filter.** Every session is always listed; a chat link carries `?session=` (named in
