@@ -26,9 +26,11 @@ AGENTBOARD_OPEN=1 bun run dev        # no auth: anyone who can reach the port co
 ```
 
 `/api/*` answers `401` without the token or cookie; a token can also be passed as `?token=`.
-`next dev` serves its dev resources only to origins listed in `allowedDevOrigins`, which is built from
-`127.0.0.1`, `localhost`, the hostname, and every non-internal IPv4 — otherwise LAN pages load without
-hydrating.
+`next dev` serves its dev resources only to origins listed in `allowedDevOrigins`: `localhost`, the
+hostname, every interface IPv4, plus the wildcard patterns `*.*`, `*.*.*`, `*.*.*.*`, which match any
+dotted origin a browser can send — so LAN and tunnelled access needs no configuration. Anything else
+(single-label `/etc/hosts` alias, IPv6, `null`) goes in `AGENTBOARD_DEV_ORIGINS`; unlisted origins
+load the page without hydrating.
 
 ## Requirements
 
