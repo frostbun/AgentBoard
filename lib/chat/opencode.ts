@@ -148,13 +148,14 @@ export function readOpencodeSession(sessionId: string, limit: number): ChatSessi
         usage.api_ms = (usage.api_ms ?? 0) + Math.max(0, (time.completed as number) - (time.created as number));
       }
 
+      // The completion stamp, like omp's and claude's records carry: dating a message at its own
+      // creation would place the end of an assistant turn at the start of its final call.
+      const doneAt = time && typeof time.completed === "number" ? (time.completed as number) : undefined;
+      const at = doneAt ?? (typeof rec?.time_created === "number" ? (rec.time_created as number) : undefined);
       messages.push({
         id: messageId,
         role: asString(data.role) === "user" ? "user" : "assistant",
-        at:
-          typeof rec?.time_created === "number"
-            ? new Date(rec.time_created as number).toISOString()
-            : undefined,
+        at: at === undefined ? undefined : new Date(at).toISOString(),
         blocks,
       });
     }
