@@ -83,8 +83,8 @@ export function readOmpSession(file: string, limit: number): ChatSession {
       continue;
     }
     // Plan mode: the entry record names the default plan file, and omp rewrites the record
-    // when a proposal names its own. Leaving plan mode is the answer to the proposal — the
-    // approve options, "Save and quit", and the terminal's own exit all write `mode: "none"`.
+    // when a proposal names its own. Any other mode answers the proposal: approving writes
+    // `plan_paused` (plan mode resumes after the plan), and saving or leaving writes `none`.
     if (type === "mode_change") {
       if (asString(rec.mode) === "plan") {
         planFile = asString(asRecord(rec.data)?.planFilePath) ?? planFile;

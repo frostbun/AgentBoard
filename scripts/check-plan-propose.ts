@@ -81,6 +81,17 @@ const answered = session("answered.jsonl", [
 ]);
 check("propose: leaving plan mode clears it", readOmpSession(answered, 250).plan === null, readOmpSession(answered, 250).plan);
 
+/* Approving in place writes `plan_paused` — omp resumes plan mode once the plan is done — so
+ * the answer rule is "any mode that is not `plan`", not a list of terminal modes. */
+const approved = session("approved.jsonl", [
+  header,
+  modeChange("plan", "local://PLAN.md"),
+  ...propose("call_1", "verdaccio-repo-deploy\n\nSplit the registries out…", xdev(proposed, "verdaccio-repo-deploy")),
+  modeChange("plan", proposed),
+  modeChange("plan_paused"),
+]);
+check("propose: a paused plan mode clears it too", readOmpSession(approved, 250).plan === null);
+
 /* Older results carry no `xdev` payload: the slug comes from the write, the file from omp's
  * follow-up record (the state still says `local://PLAN.md` when the write lands). */
 const noDetails = session("no-details.jsonl", [
